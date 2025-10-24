@@ -84,21 +84,13 @@ class PriceCalculator:
             # Standardize multiple spaces to single space
             size = re.sub(r'\s+', ' ', size).strip()
             
-            # Normalize tipo_serie variations
-            # Normalize 90 degree elbows: "CODO 90", "90D LR ELBOW", "90 LR ELBOW", etc. → "CODO 90 LR"
-            if '90' in tipo_serie and ('CODO' in tipo_serie or 'ELBOW' in tipo_serie or 'LR' in tipo_serie):
-                # Check if it's long radius (LR) or short radius (SR)
-                if 'SR' in tipo_serie or 'RADIO CORTO' in tipo_serie or 'SHORT RADIUS' in tipo_serie:
-                    tipo_serie = 'CODO 90 SR'
-                else:
-                    # Default to LR (long radius) for 90 degree elbows
-                    tipo_serie = 'CODO 90 LR'
-            # Normalize 45 degree elbows
-            elif '45' in tipo_serie and ('CODO' in tipo_serie or 'ELBOW' in tipo_serie):
-                if 'SR' in tipo_serie or 'RADIO CORTO' in tipo_serie:
-                    tipo_serie = 'CODO 45 SR'
-                else:
-                    tipo_serie = 'CODO 45 LR'
+            # Minimal normalization - only clean up format, don't change meaning
+            # Remove extra spaces and standardize
+            tipo_serie = re.sub(r'\s+', ' ', tipo_serie).strip()
+            
+            # Don't normalize tipo_serie content - use it as-is from the database
+            # The database tipo_serie is already correct and specific (e.g., "90D LR THREADED NPT ELBOW")
+            # Citizen descriptions should match exactly or use AI embedding matching
             
             # Normalize espesor
             if espesor in ['STANDARD', 'STD']:

@@ -163,32 +163,11 @@ class EmbeddingMatcher:
         value_str = str(value).strip().upper()
         
         if field_type == 'tipo_serie':
-            # Normalize tipo_serie variations
-            # 90° elbow variations
-            if '90' in value_str and ('CODO' in value_str or 'ELBOW' in value_str):
-                if 'RADIO LARGO' in value_str or 'LR' in value_str or 'L.R' in value_str:
-                    return '90D LR ELBOW'
-                elif 'RADIO CORTO' in value_str or 'SR' in value_str or 'S.R' in value_str:
-                    return '90D SR ELBOW'
-                else:
-                    return '90D LR ELBOW'  # Default to LR if not specified
-            
-            # 45° elbow variations
-            elif '45' in value_str and ('CODO' in value_str or 'ELBOW' in value_str):
-                if 'RADIO LARGO' in value_str or 'LR' in value_str or 'L.R' in value_str:
-                    return '45D LR ELBOW'
-                elif 'RADIO CORTO' in value_str or 'SR' in value_str or 'S.R' in value_str:
-                    return '45D SR ELBOW'
-                else:
-                    return '45D LR ELBOW'  # Default to LR if not specified
-            
-            # TEE variations
-            elif 'TEE' in value_str or 'TE ' in value_str or value_str == 'TE':
-                if 'REDUCC' in value_str or 'RED' in value_str:
-                    return 'RED. TEE'
-                else:
-                    return 'TEE'
-            
+            # Minimal normalization - only clean up format, don't change content
+            # Remove extra spaces and standardize
+            value_str = re.sub(r'\s+', ' ', value_str).strip()
+            # Remove trailing .0 from series numbers (e.g., "2000.0" -> "2000")
+            value_str = re.sub(r'\.0+$', '', value_str)
             return value_str
         
         elif field_type == 'size':

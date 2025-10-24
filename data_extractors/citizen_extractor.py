@@ -166,29 +166,63 @@ class CitizenExtractor:
         return ''
     
     def _extract_tipo_from_desc(self, description):
-        """Extract product type from description."""
+        """
+        Extract product type from description to match database tipo_serie format.
+        Database uses specific formats like:
+        - "90D LR ELBOW" (soldable, long radius)
+        - "90D SR ELBOW" (soldable, short radius)
+        - "45D LR ELBOW" (45 degree, long radius)
+        - "TEE"
+        - etc.
+        
+        This should NOT try to "normalize" to Spanish - keep English format to match DB.
+        """
         try:
-            desc = str(description).upper()
-            # Common patterns: "90D LR ELBOW", "TEE", "COUPLING", etc.
-            # IMPORTANT: Check 45D BEFORE checking general ELBOW or 90D
-            if '45D' in desc or '45 ELBOW' in desc:
-                return 'CODO 45°'
-            elif 'ELBOW' in desc or '90D' in desc:
-                return 'CODO 90°'
+            desc = str(description).upper().strip()
+            
+            # Keep the exact format from the description
+            # Don't translate to Spanish - the database has English tipo_serie
+            
+            # For elbows, extract the full type: "90D LR ELBOW", "90D SR ELBOW", "45D LR ELBOW", etc.
+            if 'ELBOW' in desc:
+                # Extract the full elbow type (e.g., "90D LR ELBOW", "90D SR ELBOW", "45D LR ELBOW")
+                words = desc.split()
+                elbow_type_parts = []
+                for i, word in enumerate(words):
+                    if 'ELBOW' in word:
+                        # Get the words before ELBOW (like "90D LR" or "45D SR")
+                        start_idx = max(0, i-2)
+                        elbow_type_parts = words[start_idx:i+1]
+                        break
+                
+                if elbow_type_parts:
+                    return ' '.join(elbow_type_parts)
+                else:
+                    # Fallback: just return "ELBOW" with degree if found
+                    if '90D' in desc or '90 ' in desc:
+                        if 'SR' in desc:
+                            return '90D SR ELBOW'
+                        else:
+                            return '90D LR ELBOW'
+                    elif '45D' in desc or '45 ' in desc:
+                        return '45D LR ELBOW'
+                    return 'ELBOW'
+            
+            # For TEE, CAP, COUPLING, REDUCER - keep as-is
             elif 'TEE' in desc:
-                return 'TE'
+                return 'TEE'
+            elif 'CAP' in desc:
+                return 'CAP'
             elif 'COUPLING' in desc:
                 return 'COUPLING'
             elif 'REDUCER' in desc or 'RED' in desc:
-                return 'REDUCCION'
-            elif 'CAP' in desc:
-                return 'TAPON'
+                return 'REDUCER'
             else:
                 # Return first word as type
                 return desc.split()[0] if desc else ''
-        except:
-            pass
-        return ''
+        except Exception as e:
+            logger.warning(f"Error extracting tipo from description '{description}': {e}")
+            return ''
     
     def _extract_espesor(self, description):
         """Extract espesor (thickness) from description."""
