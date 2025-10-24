@@ -1,0 +1,41 @@
+===========================================
+CONFIGURACIÓN DE EMBEDDINGS (AI MATCHING)
+===========================================
+
+El sistema ahora usa embeddings de OpenAI para matching semántico de productos.
+Esto es mucho más preciso que fuzzy matching.
+
+COSTO ESTIMADO:
+- ~$0.003 USD por ejecución completa (1,627 productos Dialfa + 46 Citizen)
+- Usa el modelo text-embedding-3-small ($0.02 per 1M tokens)
+
+CÓMO CONFIGURAR:
+1. Obtener API Key de OpenAI:
+   - Ve a: https://platform.openai.com/api-keys
+   - Crea una cuenta si no tienes
+   - Genera un nuevo API key
+
+2. Editar el archivo .env:
+   - Abre el archivo .env en la raíz del proyecto
+   - Reemplaza "your-api-key-here" con tu API key real:
+     OPENAI_API_KEY=sk-tu-api-key-real-aqui
+   - Guarda el archivo
+
+3. El sistema cargará automáticamente la API key del archivo .env
+
+CÓMO FUNCIONA:
+1. El sistema intenta matching exacto primero (gratis, por claves)
+2. Para productos sin match exacto, usa embeddings (AI)
+3. Si no hay API key, usa fuzzy matching tradicional (gratis pero menos preciso)
+
+PROBAR EL SISTEMA:
+- python test_embeddings.py  (prueba con 50 productos)
+- python app.py              (ejecuta la aplicación completa)
+
+AJUSTAR THRESHOLD:
+- Threshold actual: 0.85 (85% de similitud)
+- Más alto (0.90): Matches más precisos pero menos cantidad
+- Más bajo (0.75): Más matches pero menos confiables
+
+El threshold se ajusta en price_calculator.py línea 200.
+

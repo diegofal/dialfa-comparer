@@ -1,0 +1,62 @@
+=======================================================================
+SISTEMA DE CACHÉ DE EMBEDDINGS - ACTUALIZACIÓN
+=======================================================================
+
+AHORA TAMBIÉN SE CACHEAN LOS EMBEDDINGS DE IA! 
+
+BENEFICIOS:
+✓ Primera ejecución con --refresh: ~$0.0016 (genera embeddings)
+✓ Siguientes ejecuciones: $0 (lee embeddings del caché)
+✓ No se regeneran embeddings a menos que uses --refresh
+✓ Mucho más rápido: embeddings se cargan en milisegundos
+
+ARCHIVOS DE CACHÉ NUEVOS:
+data_cache/
+├── embeddings_dialfa.pkl    # Embeddings de 1,627 productos Dialfa
+├── embeddings_citizen.pkl   # Embeddings de 46 productos Citizen
+└── embeddings_cintolo.pkl   # (futuro)
+    embeddings_zaloze.pkl    # (futuro)
+
+FLUJO DE TRABAJO ACTUALIZADO:
+
+1. PRIMERA EJECUCIÓN (genera todo):
+   python app.py --refresh
+   → Extrae datos (OCR incluido)
+   → Genera embeddings con OpenAI (costo: ~$0.0016)
+   → Guarda CSVs + PKL
+   → Total: ~2-3 minutos, ~$0.002
+
+2. SIGUIENTES EJECUCIONES (usa caché):
+   python app.py
+   → Lee CSVs (5 segundos)
+   → Lee embeddings PKL (instantáneo)
+   → NO llama a OpenAI
+   → Total: ~5 segundos, $0
+
+3. CUANDO CAMBIEN DATOS DE ORIGEN:
+   python app.py --refresh
+   → Regenera todo incluyendo embeddings
+   → Costo: ~$0.002
+
+4. SI SOLO CAMBIAS LÓGICA (sin cambiar datos):
+   python app.py
+   → Usa caché existente, sin costo
+
+=======================================================================
+COMPARACIÓN DE COSTOS
+=======================================================================
+
+ANTES (sin caché de embeddings):
+- Cada ejecución: $0.0016 en embeddings
+- 10 ejecuciones/día: $0.016/día = $0.48/mes
+
+AHORA (con caché de embeddings):
+- Primera ejecución: $0.0016
+- Siguientes 9 ejecuciones: $0
+- Total: $0.0016/día = $0.048/mes
+
+AHORRO: 90% de costo en embeddings! 🎉
+
+=======================================================================
+
+

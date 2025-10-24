@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Comparación de Precios - Dialfa</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .card.green {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        
+        .card.orange {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .card.blue {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .card-title {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .card-value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        
+        .card-value small {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .filter-group label {
+            font-size: 12px;
+            color: #7f8c8d;
+            font-weight: 600;
+        }
+        
+        select, input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            min-width: 150px;
+        }
+        
+        input[type="number"] {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .config-panel {
+            background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 2px solid #f39c12;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .config-panel h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .config-panel .info-text {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #5a4a42;
+            background-color: rgba(255,255,255,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #f39c12;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        .btn-success {
+            background-color: #27ae60;
+        }
+        
+        .btn-success:hover {
+            background-color: #229954;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .errors {
+            background-color: #fee;
+            border-left: 4px solid #e74c3c;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        
+        .errors h3 {
+            color: #e74c3c;
+            margin-bottom: 10px;
+        }
+        
+        .errors ul {
+            margin-left: 20px;
+            color: #c0392b;
+        }
+        
+        table.dataTable {
+            width: 100% !important;
+            font-size: 13px;
+        }
+        
+        table.dataTable thead th {
+            background-color: #34495e;
+            color: white;
+            padding: 12px 8px;
+            font-weight: 600;
+        }
+        
+        table.dataTable tbody td {
+            padding: 10px 8px;
+        }
+        
+        table.dataTable tbody tr:hover {
+            background-color: #ecf0f1;
+        }
+        
+        .margin-low {
+            background-color: #ffebee !important;
+            color: #c62828;
+            font-weight: bold;
+        }
+        
+        .margin-medium {
+            background-color: #fff8e1 !important;
+            color: #f57c00;
+            font-weight: bold;
+        }
+        
+        .margin-high {
+            background-color: #e8f5e9 !important;
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        
+        .price {
+            text-align: right;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .badge-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .badge-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .position-cheapest {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        .position-expensive {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .position-middle {
+            color: #f39c12;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Sistema de Comparación de Precios</h1>
+        <p class="subtitle">Comparación integral: Dialfa vs Citizen (Proveedor) vs Competencia (Cintolo, Zaloze)</p>
+        
+        <div id="errors-container"></div>
+        
+        <div class="summary-cards" id="summary-cards">
+            <div class="card">
+                <div class="card-title">Total Productos Dialfa</div>
+                <div class="card-value" id="total-products">-</div>
+            </div>
+            <div class="card green">
+                <div class="card-title">✓ Match Citizen</div>
+                <div class="card-value" id="matched-products">-</div>
+            </div>
+            <div class="card orange">
+                <div class="card-title">✗ Sin Match Citizen</div>
+                <div class="card-value" id="unmatched-citizen">-</div>
+            </div>
+            <div class="card blue">
+                <div class="card-title">Margen Promedio</div>
+                <div class="card-value" id="avg-margin">-<small>%</small></div>
+            </div>
+        </div>
+        
+        <div class="summary-cards" style="margin-bottom: 30px;">
+            <div class="card" style="background: linear-gradient(135deg, #a8e063 0%, #56ab2f 100%);">
+                <div class="card-title">✓ Match Cintolo</div>
+                <div class="card-value" id="matched-cintolo">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);">
+                <div class="card-title">✗ Sin Match Cintolo</div>
+                <div class="card-value" id="unmatched-cintolo">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);">
+                <div class="card-title">✓ Match Zaloze</div>
+                <div class="card-value" id="matched-zaloze">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fddb92 0%, #d1fdff 100%); color: #333;">
+                <div class="card-title">✗ Sin Match Zaloze</div>
+                <div class="card-value" id="unmatched-zaloze">-</div>
+            </div>
+        </div>
+        
+        <div class="config-panel">
+            <h3>⚙️ Configuración de Precios</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                <div class="filter-group">
+                    <label>Descuento Universal (%)</label>
+                    <input type="number" id="discount-percent" value="30" min="0" max="100" step="1"
+                           title="Porcentaje de descuento aplicado a TODOS los productos (0 = sin descuento)">
+                    <small style="color: #6c757d; font-size: 11px; margin-top: 5px; display: block;">
+                        Se aplica a todo el catálogo. Ejemplo: 30% → todos los precios × 0.70
+                    </small>
+                </div>
+                <div class="filter-group">
+                    <label>Nacionalización (%)</label>
+                    <input type="number" id="nationalization-percent" value="150" min="0" step="1"
+                           title="Porcentaje de incremento para nacionalizar precios FOB">
+                    <small style="color: #6c757d; font-size: 11px; margin-top: 5px; display: block;">
+                        Costos de importación. Ejemplo: 150% → FOB × 2.5
+                    </small>
+                </div>
+                <div style="display: flex; align-items: flex-end;">
+                    <button onclick="applyPricingConfig()" style="width: 100%; background-color: #e67e22; font-weight: 600; height: 45px;">
+                        💰 Aplicar Configuración
+                    </button>
+                </div>
+            </div>
+            <p class="info-text">
+                💡 <strong>Descuento Universal:</strong> Se aplica a TODOS los productos (0% = sin descuento). 
+                <strong>Nacionalización:</strong> Incremento (%) sobre precio FOB de Citizen para costos de importación.
+                <br>
+                📊 Los márgenes se calculan usando el precio final (con descuento si > 0%) y el precio nacionalizado.
+            </p>
+        </div>
+        
+        <div class="controls">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Categoría de Margen</label>
+                    <select id="margin-filter">
+                        <option value="">Todos</option>
+                        <option value="high">Alto (>40%)</option>
+                        <option value="medium">Medio (20-40%)</option>
+                        <option value="low">Bajo (<20%)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Estado de Mapeo</label>
+                    <select id="match-filter">
+                        <option value="">Todos</option>
+                        <option value="matched">Mapeados</option>
+                        <option value="unmatched">Sin Mapear</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Posición en Mercado</label>
+                    <select id="position-filter">
+                        <option value="">Todos</option>
+                        <option value="Cheapest">Más Barato</option>
+                        <option value="Middle">Medio</option>
+                        <option value="Most Expensive">Más Caro</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <button onclick="exportToCSV()" class="btn-success">📥 Exportar CSV</button>
+                <button onclick="refreshData()">🔄 Actualizar</button>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Cargando datos...</p>
+        </div>
+        
+        <table id="priceTable" class="display" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Código Dialfa</th>
+                    <th>Descripción</th>
+                    <th>Precio Dialfa</th>
+                    <th>Precio c/ Descuento</th>
+                    <th>Producto Citizen</th>
+                    <th>Cantidad Total</th>
+                    <th>FOB Min</th>
+                    <th>FOB Max</th>
+                    <th>FOB Ponderado</th>
+                    <th>FOB Pond. + Nac.</th>
+                    <th>Rentabilidad %</th>
+                    <th>Margen Bruto %</th>
+                    <th>Precio Cintolo</th>
+                    <th>Dif vs Cintolo</th>
+                    <th>Precio Zaloze</th>
+                    <th>Dif vs Zaloze</th>
+                    <th>Posición Mercado</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script>
+        let dataTable;
+        let allData = [];
+        
+        function loadData() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('priceTable').style.display = 'none';
+            
+            // Get pricing configuration parameters
+            const discountPercent = document.getElementById('discount-percent').value;
+            const nationalizationPercent = document.getElementById('nationalization-percent').value;
+            
+            const url = `/api/data?discount_percent=${discountPercent}&nationalization_percent=${nationalizationPercent}`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(result => {
+                    allData = result.data || [];
+                    
+                    // Display errors if any
+                    if (result.errors && result.errors.length > 0) {
+                        displayErrors(result.errors);
+                    }
+                    
+                    // Update summary cards
+                    updateSummary(result.summary);
+                    
+                    // Initialize or update DataTable
+                    initializeDataTable(allData);
+                    
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('priceTable').style.display = 'table';
+                })
+                .catch(error => {
+                    console.error('Error loading data:', error);
+                    document.getElementById('loading').innerHTML = 
+                        '<p style="color: red;">Error cargando datos: ' + error + '</p>';
+                });
+        }
+        
+        function applyPricingConfig() {
+            // Reload data with new pricing configuration
+            loadData();
+        }
+        
+        function displayErrors(errors) {
+            const container = document.getElementById('errors-container');
+            container.innerHTML = `
+                <div class="errors">
+                    <h3>⚠️ Advertencias durante la carga de datos</h3>
+                    <ul>
+                        ${errors.map(err => `<li>${err}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+        
+        function updateSummary(summary) {
+            document.getElementById('total-products').textContent = summary.total_products || 0;
+            document.getElementById('matched-products').textContent = summary.matched_products || 0;
+            document.getElementById('unmatched-citizen').textContent = summary.unmatched_citizen || 0;
+            document.getElementById('matched-cintolo').textContent = summary.matched_cintolo || 0;
+            document.getElementById('unmatched-cintolo').textContent = summary.unmatched_cintolo || 0;
+            document.getElementById('matched-zaloze').textContent = summary.matched_zaloze || 0;
+            document.getElementById('unmatched-zaloze').textContent = summary.unmatched_zaloze || 0;
+            document.getElementById('avg-margin').innerHTML = 
+                (summary.average_margin || 0).toFixed(1) + '<small>%</small>';
+        }
+        
+        function initializeDataTable(data) {
+            if (dataTable) {
+                dataTable.destroy();
+            }
+            
+            const tbody = document.querySelector('#priceTable tbody');
+            tbody.innerHTML = '';
+            
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                
+                // Apply margin category class to entire row
+                if (row.margin_category) {
+                    tr.className = `margin-${row.margin_category}`;
+                }
+                
+                // Get current pricing parameters
+                const nationalizationPercent = parseFloat(document.getElementById('nationalization-percent').value);
+                const discountPercent = parseFloat(document.getElementById('discount-percent').value);
+                
+                // Recalculate ALL prices in frontend to ensure consistency
+                const precioConDescuento = (discountPercent > 0 && row.dialfa_precio) 
+                    ? row.dialfa_precio * (1 - discountPercent / 100) 
+                    : null;
+                
+                const citizenNacionalizado = row.citizen_precio_usd 
+                    ? row.citizen_precio_usd * (1 + nationalizationPercent / 100) 
+                    : null;
+                
+                // Determine final prices for margin calculation
+                const dialfaFinal = precioConDescuento || row.dialfa_precio;
+                const citizenFinal = citizenNacionalizado;
+                
+                // Recalculate margins with final prices
+                let rentabilidadPercent = null;  // Rentabilidad = (Venta - Costo) / Costo
+                let margenBrutoPercent = null;   // Margen Bruto = (Venta - Costo) / Venta
+                
+                if (dialfaFinal && citizenFinal) {
+                    rentabilidadPercent = ((dialfaFinal - citizenFinal) / citizenFinal * 100);
+                    margenBrutoPercent = ((dialfaFinal - citizenFinal) / dialfaFinal * 100);
+                }
+                
+                tr.innerHTML = `
+                    <td>${row.codigo || '-'}</td>
+                    <td>${row.descripcion || '-'}</td>
+                    <td class="price">$${formatNumber(row.dialfa_precio)}</td>
+                    <td class="price">${precioConDescuento ? '$' + formatNumber(precioConDescuento) : '-'}</td>
+                    <td>${row.citizen_producto || '-'}</td>
+                    <td class="price" style="text-align: center;">${row.cantidad ? Math.round(row.cantidad) + ' uds' : '-'}</td>
+                    <td class="price">$${formatNumber(row.precio_fob_min)}</td>
+                    <td class="price">$${formatNumber(row.precio_fob_max)}</td>
+                    <td class="price">$${formatNumber(row.precio_fob_ponderado)}</td>
+                    <td class="price">${citizenNacionalizado ? '$' + formatNumber(citizenNacionalizado) : '-'}</td>
+                    <td class="price">${rentabilidadPercent !== null ? formatNumber(rentabilidadPercent) + '%' : '-'}</td>
+                    <td class="price">${margenBrutoPercent !== null ? formatNumber(margenBrutoPercent) + '%' : '-'}</td>
+                    <td class="price">${row.cintolo_precio ? '$' + formatNumber(row.cintolo_precio) : '-'}</td>
+                    <td class="price">${row.diff_percent_cintolo ? formatNumber(row.diff_percent_cintolo) + '%' : '-'}</td>
+                    <td class="price">${row.zaloze_precio ? '$' + formatNumber(row.zaloze_precio) : '-'}</td>
+                    <td class="price">${row.diff_percent_zaloze ? formatNumber(row.diff_percent_zaloze) + '%' : '-'}</td>
+                    <td class="position-${row.market_position ? row.market_position.toLowerCase().replace(' ', '-') : 'na'}">
+                        ${row.market_position || 'N/A'}
+                    </td>
+                    <td>
+                        <span class="badge badge-${row.match_status === 'Unmatched' ? 'danger' : 'success'}">
+                            ${row.match_status || 'Unknown'}
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            dataTable = $('#priceTable').DataTable({
+                paging: false,  // Disable pagination - show all rows
+                order: [[7, 'asc']],  // Sort by margin % ascending (column index 7 now)
+                language: {
+                    url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json'
+                },
+                scrollY: '600px',  // Add vertical scroll
+                scrollCollapse: true
+            });
+            
+            // Apply filters
+            applyFilters();
+        }
+        
+        function formatNumber(num) {
+            if (num === null || num === undefined || isNaN(num)) {
+                return '-';
+            }
+            return parseFloat(num).toFixed(2);
+        }
+        
+        function applyFilters() {
+            if (!dataTable) return;
+            
+            const marginFilter = document.getElementById('margin-filter').value;
+            const matchFilter = document.getElementById('match-filter').value;
+            const positionFilter = document.getElementById('position-filter').value;
+            
+            $.fn.dataTable.ext.search = [];
+            
+            $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+                const rowData = allData[dataIndex];
+                
+                // Margin filter
+                if (marginFilter && rowData.margin_category !== marginFilter) {
+                    return false;
+                }
+                
+                // Match filter
+                if (matchFilter === 'matched' && rowData.match_status === 'Unmatched') {
+                    return false;
+                }
+                if (matchFilter === 'unmatched' && rowData.match_status !== 'Unmatched') {
+                    return false;
+                }
+                
+                // Position filter
+                if (positionFilter && rowData.market_position !== positionFilter) {
+                    return false;
+                }
+                
+                return true;
+            });
+            
+            dataTable.draw();
+        }
+        
+        function exportToCSV() {
+            const csvContent = convertToCSV(allData);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'comparacion_precios_' + new Date().toISOString().split('T')[0] + '.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function convertToCSV(data) {
+            if (!data || data.length === 0) return '';
+            
+            const headers = Object.keys(data[0]);
+            const csvRows = [headers.join(',')];
+            
+            data.forEach(row => {
+                const values = headers.map(header => {
+                    const val = row[header];
+                    return val === null || val === undefined ? '' : `"${val}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+            
+            return csvRows.join('\n');
+        }
+        
+        function refreshData() {
+            fetch('/api/refresh')
+                .then(() => loadData())
+                .catch(error => console.error('Error refreshing:', error));
+        }
+        
+        // Event listeners
+        document.getElementById('margin-filter').addEventListener('change', applyFilters);
+        document.getElementById('match-filter').addEventListener('change', applyFilters);
+        document.getElementById('position-filter').addEventListener('change', applyFilters);
+        
+        // Load data on page load
+        loadData();
+    </script>
+</body>
+</html>
+
