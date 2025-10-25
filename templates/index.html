@@ -525,31 +525,14 @@
                     tr.className = `margin-${row.margin_category}`;
                 }
                 
-                // Get current pricing parameters
-                const nationalizationPercent = parseFloat(document.getElementById('nationalization-percent').value);
-                const discountPercent = parseFloat(document.getElementById('discount-percent').value);
+                // USE VALUES FROM BACKEND - do NOT recalculate here
+                // The backend already calculated everything with the correct parameters
+                const precioConDescuento = row.precio_con_descuento;
+                const ciudadanoNacionalizado = row.citizen_precio_nacionalizado;
                 
-                // Recalculate ALL prices in frontend to ensure consistency
-                const precioConDescuento = (discountPercent > 0 && row.dialfa_precio) 
-                    ? row.dialfa_precio * (1 - discountPercent / 100) 
-                    : null;
-                
-                const citizenNacionalizado = row.citizen_precio_usd 
-                    ? row.citizen_precio_usd * (1 + nationalizationPercent / 100) 
-                    : null;
-                
-                // Determine final prices for margin calculation
-                const dialfaFinal = precioConDescuento || row.dialfa_precio;
-                const citizenFinal = citizenNacionalizado;
-                
-                // Recalculate margins with final prices
-                let rentabilidadPercent = null;  // Rentabilidad = (Venta - Costo) / Costo
-                let margenBrutoPercent = null;   // Margen Bruto = (Venta - Costo) / Venta
-                
-                if (dialfaFinal && citizenFinal) {
-                    rentabilidadPercent = ((dialfaFinal - citizenFinal) / citizenFinal * 100);
-                    margenBrutoPercent = ((dialfaFinal - citizenFinal) / dialfaFinal * 100);
-                }
+                // Use backend-calculated margins directly
+                const rentabilidadPercent = row.markup_percent;  // Markup % = Rentabilidad
+                const margenBrutoPercent = row.margin_percent;   // Margin % = Margen Bruto
                 
                 tr.innerHTML = `
                     <td>${row.codigo || '-'}</td>
@@ -561,7 +544,7 @@
                     <td class="price">$${formatNumber(row.precio_fob_min)}</td>
                     <td class="price">$${formatNumber(row.precio_fob_max)}</td>
                     <td class="price">$${formatNumber(row.precio_fob_ponderado)}</td>
-                    <td class="price">${citizenNacionalizado ? '$' + formatNumber(citizenNacionalizado) : '-'}</td>
+                    <td class="price">${ciudadanoNacionalizado ? '$' + formatNumber(ciudadanoNacionalizado) : '-'}</td>
                     <td class="price">${rentabilidadPercent !== null ? formatNumber(rentabilidadPercent) + '%' : '-'}</td>
                     <td class="price">${margenBrutoPercent !== null ? formatNumber(margenBrutoPercent) + '%' : '-'}</td>
                     <td class="price">${row.cintolo_precio ? '$' + formatNumber(row.cintolo_precio) : '-'}</td>
