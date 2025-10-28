@@ -426,8 +426,10 @@
                     <th>FOB Pond. + Nac.</th>
                     <th>Rentabilidad %</th>
                     <th>Margen Bruto %</th>
+                    <th>Match Cintolo</th>
                     <th>Precio Cintolo</th>
                     <th>Dif vs Cintolo</th>
+                    <th>Match Zaloze</th>
                     <th>Precio Zaloze</th>
                     <th>Dif vs Zaloze</th>
                     <th>Posición Mercado</th>
@@ -547,8 +549,10 @@
                     <td class="price">${ciudadanoNacionalizado ? '$' + formatNumber(ciudadanoNacionalizado) : '-'}</td>
                     <td class="price">${rentabilidadPercent !== null ? formatNumber(rentabilidadPercent) + '%' : '-'}</td>
                     <td class="price">${margenBrutoPercent !== null ? formatNumber(margenBrutoPercent) + '%' : '-'}</td>
+                    <td class="description" title="${row.cintolo_descripcion || 'Sin match'}">${row.cintolo_descripcion || '-'}</td>
                     <td class="price">${row.cintolo_precio ? '$' + formatNumber(row.cintolo_precio) : '-'}</td>
                     <td class="price">${row.diff_percent_cintolo ? formatNumber(row.diff_percent_cintolo) + '%' : '-'}</td>
+                    <td class="description" title="${row.zaloze_descripcion || 'Sin match'}">${row.zaloze_descripcion || '-'}</td>
                     <td class="price">${row.zaloze_precio ? '$' + formatNumber(row.zaloze_precio) : '-'}</td>
                     <td class="price">${row.diff_percent_zaloze ? formatNumber(row.diff_percent_zaloze) + '%' : '-'}</td>
                     <td class="position-${row.market_position ? row.market_position.toLowerCase().replace(' ', '-') : 'na'}">

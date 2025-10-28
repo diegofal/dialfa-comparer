@@ -29,6 +29,7 @@ app = Flask(__name__)
 
 # Global variables
 cached_results = None
+cached_matched_data = None  # Cache matched data (independent of pricing params)
 extraction_errors = []
 data_cache = DataCache()
 last_params = {}  # Track last used parameters to invalidate cache when they change
@@ -46,11 +47,54 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         discount_percent: Discount percentage to apply to ALL products (default: 30%)
         nationalization_percent: Nationalization percentage for FOB prices
     """
-    global cached_results, extraction_errors
+    global cached_results, cached_matched_data, extraction_errors
     
     extraction_errors = []
     
     try:
+        # Check if we can reuse matched data (if only pricing params changed)
+        if cached_matched_data is not None:
+            logger.info("✓ Reusing cached matched data, recalculating margins only...")
+            calculator = PriceCalculator(
+                db_articulos=cached_matched_data['db_articulos'],
+                dialfa_data=cached_matched_data['db_articulos'],
+                citizen_data=cached_matched_data['citizen_data'],
+                cintolo_data=cached_matched_data['cintolo_data'],
+                zaloze_data=cached_matched_data['zaloze_data'],
+                use_embeddings=False,  # Skip embedding initialization
+                discount_percent=discount_percent,
+                nationalization_percent=nationalization_percent
+            )
+            
+            # Use the pre-matched data
+            results = calculator.calculate_margins(cached_matched_data['matched_df'])
+            
+            # Reorder columns for better readability
+            column_order = [
+                'codigo', 'descripcion', 
+                'dialfa_precio', 'precio_con_descuento',
+                'citizen_producto', 
+                'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
+                'precio_fob_min_nacionalizado', 'precio_fob_max_nacionalizado', 'citizen_precio_nacionalizado',
+                'margin_percent', 'markup_percent',
+                'cintolo_descripcion', 'cintolo_precio', 'diff_vs_cintolo', 'diff_percent_cintolo',
+                'zaloze_descripcion', 'zaloze_precio', 'diff_vs_zaloze', 'diff_percent_zaloze',
+                'market_position', 'match_status', 'margin_category',
+                'tipo', 'serie', 'tipo_serie', 'espesor', 'size', 'proveedor', 'matching_key'
+            ]
+            
+            # Only include columns that exist
+            column_order = [col for col in column_order if col in results.columns]
+            results = results[column_order]
+            
+            logger.info(f"\n✓ Recalculated margins for {len(results)} products")
+            
+            # Replace NaN with None for JSON serialization
+            results = results.where(pd.notna(results), None)
+            
+            cached_results = results
+            return results
+        
         logger.info("=" * 80)
         logger.info("Starting data extraction and processing")
         if use_cache:
@@ -146,7 +190,39 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
             nationalization_percent=nationalization_percent
         )
         
-        results = calculator.generate_report()
+        # First, do matching (expensive - only once)
+        matched_df = calculator.match_products()
+        
+        # Cache the matched data for future recalculations (global variable)
+        cached_matched_data = {
+            'db_articulos': db_articulos,
+            'citizen_data': citizen_data,
+            'cintolo_data': cintolo_data,
+            'zaloze_data': zaloze_data,
+            'matched_df': matched_df
+        }
+        globals()['cached_matched_data'] = cached_matched_data  # Ensure it's global
+        
+        # Then calculate margins (cheap - can be redone with different params)
+        results = calculator.calculate_margins(matched_df)
+        
+        # Reorder columns for better readability
+        column_order = [
+            'codigo', 'descripcion', 
+            'dialfa_precio', 'precio_con_descuento',
+            'citizen_producto', 
+            'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
+            'precio_fob_min_nacionalizado', 'precio_fob_max_nacionalizado', 'citizen_precio_nacionalizado',
+            'margin_percent', 'markup_percent',
+            'cintolo_descripcion', 'cintolo_precio', 'diff_vs_cintolo', 'diff_percent_cintolo',
+            'zaloze_descripcion', 'zaloze_precio', 'diff_vs_zaloze', 'diff_percent_zaloze',
+            'market_position', 'match_status', 'margin_category',
+            'tipo', 'serie', 'tipo_serie', 'espesor', 'size', 'proveedor', 'matching_key'
+        ]
+        
+        # Only include columns that exist
+        column_order = [col for col in column_order if col in results.columns]
+        results = results[column_order]
         
         logger.info(f"\n✓ Generated report with {len(results)} products")
         logger.info("=" * 80)
@@ -197,11 +273,13 @@ def get_data():
         params_changed = last_params != current_params
         
         if params_changed:
-            logger.info(f"Parameters changed: {last_params} → {current_params}")
-            cached_results = None  # Invalidate cache
+            logger.info(f"Pricing parameters changed: {last_params} → {current_params}")
+            logger.info("Will recalculate margins only (reusing matched data)")
+            cached_results = None  # Invalidate results cache only, NOT matched_data
             last_params = current_params
         
         # Load data if not cached or parameters changed
+        # Note: load_and_process_data will reuse cached_matched_data if available
         if cached_results is None or params_changed:
             load_and_process_data(
                 use_cache=not force_refresh,
@@ -259,8 +337,9 @@ def get_data():
 @app.route('/api/refresh')
 def refresh_data():
     """API endpoint to force refresh data."""
-    global cached_results
+    global cached_results, cached_matched_data
     cached_results = None
+    cached_matched_data = None  # Clear matched data too, forcing full re-matching
     load_and_process_data(use_cache=False)  # Force regeneration
     return jsonify({'status': 'success', 'message': 'Data refreshed'})
 

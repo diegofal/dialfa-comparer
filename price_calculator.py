@@ -59,11 +59,12 @@ class PriceCalculator:
                 self.use_embeddings = False
     
     def create_matching_key(self, row):
-        """Create composite matching key from tipo_serie, espesor, size."""
+        """Create composite matching key from tipo_serie, espesor, size with normalized tipo_serie."""
         try:
             tipo_serie = str(row.get('tipo_serie', '')).strip().upper()
             espesor = str(row.get('espesor', '')).strip().upper()
             size = str(row.get('size', '')).strip().upper()
+            descripcion = str(row.get('descripcion', '')).upper()
             
             # Remove 'nan' strings
             if tipo_serie == 'NAN':
@@ -73,24 +74,83 @@ class PriceCalculator:
             if size == 'NAN':
                 size = ''
             
-            # Normalize size: remove quotes and standardize format
+            # Normalize tipo_serie FIRST using the same logic as embedding_matcher
+            # Map English to Spanish nomenclature and vice versa for matching
+            # Remove extra spaces and standardize
+            import re
+            tipo_serie = re.sub(r'\s+', ' ', tipo_serie).strip()
+            # Remove trailing .0 from series numbers (e.g., "2000.0" -> "2000")
+            tipo_serie = re.sub(r'\.0+$', '', tipo_serie)
+            
+            # Normalize common product types to a canonical form (same as embedding_matcher)
+            # 90° Long Radius Elbows
+            if any(x in tipo_serie for x in ['90D LR ELBOW', '90 LR ELBOW', 'CODO RADIO LARGO 90', 'CODOS 90° RADIO LARGO', 'CODO R.L. 90']):
+                tipo_serie = 'ELBOW_90_LR'
+            # 90° Short Radius Elbows
+            elif any(x in tipo_serie for x in ['90D SR ELBOW', '90 SR ELBOW', 'CODO RADIO CORTO 90', 'CODOS 90°', 'CODO 90']):
+                if 'LARGO' not in tipo_serie and 'LR' not in tipo_serie and 'LONG' not in tipo_serie:
+                    tipo_serie = 'ELBOW_90_SR'
+            # 45° Elbows
+            elif any(x in tipo_serie for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45']):
+                tipo_serie = 'ELBOW_45'
+            # Tees - need to distinguish between normal tees and reducing tees
+            elif tipo_serie in ['TEE', 'TE', 'T']:
+                # Check description to see if it's a reducing tee
+                if 'RED' in descripcion or 'REDUCCION' in descripcion or 'REDUCER' in descripcion:
+                    tipo_serie = 'REDUCER_TEE'
+                else:
+                    tipo_serie = 'TEE'
+            # Reducers
+            elif any(x in tipo_serie for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE']):
+                if 'TEE' in tipo_serie or 'T' in tipo_serie:
+                    tipo_serie = 'REDUCER_TEE'
+                elif 'CON' in tipo_serie or 'CONCENTRIC' in tipo_serie:
+                    tipo_serie = 'REDUCER_CONCENTRIC'
+                elif 'EXC' in tipo_serie or 'ECCENTRIC' in tipo_serie:
+                    tipo_serie = 'REDUCER_ECCENTRIC'
+                else:
+                    tipo_serie = 'REDUCER'
+            # Caps
+            elif 'CAP' in tipo_serie or 'CAS' in tipo_serie:
+                tipo_serie = 'CAP'
+            # Crosses
+            elif 'CRUZ' in tipo_serie or 'CROSS' in tipo_serie:
+                tipo_serie = 'CROSS'
+            # Nipples
+            elif 'NIPPLE' in tipo_serie:
+                if 'NPT' in tipo_serie:
+                    tipo_serie = 'NIPPLE_NPT'
+                elif 'BSPT' in tipo_serie:
+                    tipo_serie = 'NIPPLE_BSPT'
+                else:
+                    tipo_serie = 'NIPPLE'
+            # Flanges
+            elif 'W.N.R.F' in tipo_serie or 'WELD NECK' in tipo_serie or 'BRIDA' in tipo_serie:
+                tipo_serie = 'FLANGE_WELD_NECK'
+            # Blind flanges
+            elif 'BLIND' in tipo_serie:
+                tipo_serie = 'FLANGE_BLIND'
+            
+            # NOW normalize size (after tipo_serie is normalized)
             size = size.replace('"', '').replace("'", "").strip()
             # Normalize spaces in fractions: "1 1/2" should match "1.1/2" and "11/2"
             # First remove dots before digits that precede slashes
-            import re
-            size = re.sub(r'\.(\d+/)', r' \1', size)  # "1.1/2" -> "1 1/2"
+            size = re.sub(r'\.(\d+/)', r' \1', size)  # "2.1/2" -> "2 1/2"
             # Ensure there's a space before fractions like "11/2" -> "1 1/2"
             size = re.sub(r'(\d)([1234567890]/)', r'\1 \2', size)  # "11/2" -> "1 1/2"
             # Standardize multiple spaces to single space
             size = re.sub(r'\s+', ' ', size).strip()
             
-            # Minimal normalization - only clean up format, don't change meaning
-            # Remove extra spaces and standardize
-            tipo_serie = re.sub(r'\s+', ' ', tipo_serie).strip()
-            
-            # Don't normalize tipo_serie content - use it as-is from the database
-            # The database tipo_serie is already correct and specific (e.g., "90D LR THREADED NPT ELBOW")
-            # Citizen descriptions should match exactly or use AI embedding matching
+            # For reducer tees/reducers: normalize the dual size format
+            # Examples: "6 X 3" -> "6 X 3", "6x3" -> "6 X 3", "6*3" -> "6 X 3", "6 * 3" -> "6 X 3"
+            if tipo_serie in ['REDUCER_TEE', 'REDUCER_CONCENTRIC', 'REDUCER_ECCENTRIC', 'REDUCER']:
+                # Extract both sizes and normalize separator to " X "
+                # Match patterns like "6 X 3", "6x3", "6*3", "2 1/2 X 1 1/4", etc.
+                dual_size_match = re.match(r'^(\d+(?:\s*\d+/\d+)?)\s*[Xx\*×]\s*(\d+(?:\s*\d+/\d+)?)', size)
+                if dual_size_match:
+                    size1 = dual_size_match.group(1).strip()
+                    size2 = dual_size_match.group(2).strip()
+                    size = f"{size1} X {size2}"
             
             # Normalize espesor
             if espesor in ['STANDARD', 'STD']:
@@ -190,13 +250,27 @@ class PriceCalculator:
         
         # Merge with Cintolo data
         if not self.cintolo_data.empty:
-            cintolo_merge = self.cintolo_data[['matching_key', 'codigo', 'descripcion', 'precio']].copy()
-            cintolo_merge = cintolo_merge.rename(columns={
+            # Group by matching_key to avoid duplicates (take first match, or could aggregate)
+            # If there are multiple Cintolo products with same matching_key, take the one with lowest price
+            cintolo_grouped = self.cintolo_data.groupby('matching_key').agg({
+                'codigo': 'first',  # Take first codigo
+                'descripcion': 'first',  # Take first descripcion
+                'precio': 'min',  # Take minimum price (most competitive)
+                'espesor': 'first'
+            }).reset_index()
+            
+            # Concatenate descripcion with espesor
+            cintolo_grouped['descripcion_completa'] = cintolo_grouped.apply(
+                lambda row: f"{row['descripcion']} {row['espesor']}" if pd.notna(row['espesor']) and str(row['espesor']).strip() else row['descripcion'],
+                axis=1
+            )
+            cintolo_grouped = cintolo_grouped.rename(columns={
                 'codigo': 'cintolo_codigo',
-                'descripcion': 'cintolo_descripcion',
+                'descripcion_completa': 'cintolo_descripcion',
                 'precio': 'cintolo_precio'
             })
-            result = result.merge(cintolo_merge, on='matching_key', how='left')
+            cintolo_grouped = cintolo_grouped[['matching_key', 'cintolo_codigo', 'cintolo_descripcion', 'cintolo_precio']]
+            result = result.merge(cintolo_grouped, on='matching_key', how='left')
         else:
             result['cintolo_codigo'] = None
             result['cintolo_descripcion'] = None
@@ -204,13 +278,27 @@ class PriceCalculator:
         
         # Merge with Zaloze data
         if not self.zaloze_data.empty:
-            zaloze_merge = self.zaloze_data[['matching_key', 'codigo', 'descripcion', 'precio']].copy()
-            zaloze_merge = zaloze_merge.rename(columns={
+            # Group by matching_key to avoid duplicates (take first match, or could aggregate)
+            # If there are multiple Zaloze products with same matching_key, take the one with lowest price
+            zaloze_grouped = self.zaloze_data.groupby('matching_key').agg({
+                'codigo': 'first',  # Take first codigo
+                'descripcion': 'first',  # Take first descripcion
+                'precio': 'min',  # Take minimum price (most competitive)
+                'espesor': 'first'
+            }).reset_index()
+            
+            # Concatenate descripcion with espesor
+            zaloze_grouped['descripcion_completa'] = zaloze_grouped.apply(
+                lambda row: f"{row['descripcion']} {row['espesor']}" if pd.notna(row['espesor']) and str(row['espesor']).strip() else row['descripcion'],
+                axis=1
+            )
+            zaloze_grouped = zaloze_grouped.rename(columns={
                 'codigo': 'zaloze_codigo',
-                'descripcion': 'zaloze_descripcion',
+                'descripcion_completa': 'zaloze_descripcion',
                 'precio': 'zaloze_precio'
             })
-            result = result.merge(zaloze_merge, on='matching_key', how='left')
+            zaloze_grouped = zaloze_grouped[['matching_key', 'zaloze_codigo', 'zaloze_descripcion', 'zaloze_precio']]
+            result = result.merge(zaloze_grouped, on='matching_key', how='left')
         else:
             result['zaloze_codigo'] = None
             result['zaloze_descripcion'] = None
@@ -310,14 +398,16 @@ class PriceCalculator:
         unmatched_df = df[unmatched_mask].copy()
         
         try:
-            # Use embedding matcher WITHOUT business rules for Cintolo (different nomenclature)
+            # Use embedding matcher WITH full business rules for Cintolo
+            # Now with improved tipo_serie normalization that maps English<->Spanish nomenclature
             matched_df, stats = self.embedding_matcher.match_products(
                 source_df=unmatched_df,
                 target_df=self.cintolo_data,
                 source_name="Dialfa",
                 target_name="Cintolo",
-                threshold=0.70,  # Lowered threshold for semantic matching
-                enforce_business_rules=False  # Disable strict rules due to different nomenclature
+                threshold=0.75,  # Threshold for semantic matching
+                enforce_business_rules=True,  # Enforce ALL rules (tipo_serie, size, espesor)
+                partial_business_rules=False
             )
             
             # Merge results back into main dataframe
@@ -329,8 +419,20 @@ class PriceCalculator:
                     cintolo_desc = matched_df.loc[idx, 'cintolo_descripcion_emb']
                     cintolo_precio = matched_df.loc[idx, 'cintolo_precio_emb']
                     
+                    # Get the full Cintolo row to access espesor
+                    cintolo_row = self.cintolo_data[self.cintolo_data['codigo'] == cintolo_codigo]
+                    if not cintolo_row.empty:
+                        espesor = cintolo_row.iloc[0].get('espesor', '')
+                        # Concatenate description with espesor for complete info
+                        if pd.notna(espesor) and str(espesor).strip():
+                            cintolo_desc_full = f"{cintolo_desc} {espesor}"
+                        else:
+                            cintolo_desc_full = cintolo_desc
+                    else:
+                        cintolo_desc_full = cintolo_desc
+                    
                     df.loc[idx, 'cintolo_codigo'] = cintolo_codigo
-                    df.loc[idx, 'cintolo_descripcion'] = cintolo_desc
+                    df.loc[idx, 'cintolo_descripcion'] = cintolo_desc_full
                     df.loc[idx, 'cintolo_precio'] = cintolo_precio
                     score = matched_df.loc[idx, 'cintolo_match_score']
                     
@@ -369,14 +471,16 @@ class PriceCalculator:
         unmatched_df = df[unmatched_mask].copy()
         
         try:
-            # Use embedding matcher WITHOUT business rules for Zaloze (different nomenclature)
+            # Use embedding matcher WITH full business rules for Zaloze
+            # Now with improved tipo_serie normalization that maps English<->Spanish nomenclature
             matched_df, stats = self.embedding_matcher.match_products(
                 source_df=unmatched_df,
                 target_df=self.zaloze_data,
                 source_name="Dialfa",
                 target_name="Zaloze",
-                threshold=0.70,  # Lowered threshold for semantic matching
-                enforce_business_rules=False  # Disable strict rules due to different nomenclature
+                threshold=0.75,  # Threshold for semantic matching
+                enforce_business_rules=True,  # Enforce ALL rules (tipo_serie, size, espesor)
+                partial_business_rules=False
             )
             
             # Merge results back into main dataframe
@@ -388,8 +492,20 @@ class PriceCalculator:
                     zaloze_desc = matched_df.loc[idx, 'zaloze_descripcion_emb']
                     zaloze_precio = matched_df.loc[idx, 'zaloze_precio_emb']
                     
+                    # Get the full Zaloze row to access espesor
+                    zaloze_row = self.zaloze_data[self.zaloze_data['codigo'] == zaloze_codigo]
+                    if not zaloze_row.empty:
+                        espesor = zaloze_row.iloc[0].get('espesor', '')
+                        # Concatenate description with espesor for complete info
+                        if pd.notna(espesor) and str(espesor).strip():
+                            zaloze_desc_full = f"{zaloze_desc} {espesor}"
+                        else:
+                            zaloze_desc_full = zaloze_desc
+                    else:
+                        zaloze_desc_full = zaloze_desc
+                    
                     df.loc[idx, 'zaloze_codigo'] = zaloze_codigo
-                    df.loc[idx, 'zaloze_descripcion'] = zaloze_desc
+                    df.loc[idx, 'zaloze_descripcion'] = zaloze_desc_full
                     df.loc[idx, 'zaloze_precio'] = zaloze_precio
                     score = matched_df.loc[idx, 'zaloze_match_score']
                     

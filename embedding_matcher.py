@@ -163,11 +163,71 @@ class EmbeddingMatcher:
         value_str = str(value).strip().upper()
         
         if field_type == 'tipo_serie':
-            # Minimal normalization - only clean up format, don't change content
+            # Map English to Spanish nomenclature and vice versa for matching
+            # This allows products with different nomenclatures to match
+            
             # Remove extra spaces and standardize
             value_str = re.sub(r'\s+', ' ', value_str).strip()
             # Remove trailing .0 from series numbers (e.g., "2000.0" -> "2000")
             value_str = re.sub(r'\.0+$', '', value_str)
+            
+            # Normalize common product types to a canonical form
+            # 90° Long Radius Elbows
+            if any(x in value_str for x in ['90D LR ELBOW', '90 LR ELBOW', 'CODO RADIO LARGO 90', 'CODOS 90° RADIO LARGO', 'CODO R.L. 90']):
+                return 'ELBOW_90_LR'
+            
+            # 90° Short Radius Elbows
+            if any(x in value_str for x in ['90D SR ELBOW', '90 SR ELBOW', 'CODO RADIO CORTO 90', 'CODOS 90°', 'CODO 90']):
+                # Check if it's explicitly long radius
+                if 'LARGO' not in value_str and 'LR' not in value_str and 'LONG' not in value_str:
+                    return 'ELBOW_90_SR'
+            
+            # 45° Elbows
+            if any(x in value_str for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45']):
+                return 'ELBOW_45'
+            
+            # Tees - need to distinguish between normal tees and reducing tees
+            if value_str in ['TEE', 'TE', 'T']:
+                # For embedding matcher, we can't check the row description
+                # so we return 'TEE' and rely on embedding similarity
+                # But the description field will be part of the embedding
+                return 'TEE'
+            
+            # Reducers
+            if any(x in value_str for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE']):
+                if 'TEE' in value_str or 'T' in value_str:
+                    return 'REDUCER_TEE'
+                elif 'CON' in value_str or 'CONCENTRIC' in value_str:
+                    return 'REDUCER_CONCENTRIC'
+                elif 'EXC' in value_str or 'ECCENTRIC' in value_str:
+                    return 'REDUCER_ECCENTRIC'
+                return 'REDUCER'
+            
+            # Caps
+            if 'CAP' in value_str or 'CAS' in value_str:
+                return 'CAP'
+            
+            # Crosses
+            if 'CRUZ' in value_str or 'CROSS' in value_str:
+                return 'CROSS'
+            
+            # Nipples
+            if 'NIPPLE' in value_str:
+                if 'NPT' in value_str:
+                    return 'NIPPLE_NPT'
+                elif 'BSPT' in value_str:
+                    return 'NIPPLE_BSPT'
+                return 'NIPPLE'
+            
+            # Flanges
+            if 'W.N.R.F' in value_str or 'WELD NECK' in value_str or 'BRIDA' in value_str:
+                return 'FLANGE_WELD_NECK'
+            
+            # Blind flanges
+            if 'BLIND' in value_str:
+                return 'FLANGE_BLIND'
+            
+            # Return as-is if no match (minimal normalization)
             return value_str
         
         elif field_type == 'size':
@@ -191,7 +251,7 @@ class EmbeddingMatcher:
         
         return value_str
     
-    def _fields_match(self, source_row, target_row):
+    def _fields_match(self, source_row, target_row, check_tipo_serie=True):
         """
         Check if critical fields (tipo_serie, size, espesor) match between source and target.
         This enforces business rules before embedding similarity.
@@ -199,16 +259,18 @@ class EmbeddingMatcher:
         Args:
             source_row: Source product row
             target_row: Target product row
+            check_tipo_serie: If True, enforces tipo_serie match. If False, only checks size and espesor.
         
         Returns:
             True if all critical fields match, False otherwise
         """
-        # Normalize and compare tipo_serie
-        source_tipo = self._normalize_field(source_row.get('tipo_serie'), 'tipo_serie')
-        target_tipo = self._normalize_field(target_row.get('tipo_serie'), 'tipo_serie')
-        
-        if source_tipo != target_tipo:
-            return False
+        # Normalize and compare tipo_serie (if required)
+        if check_tipo_serie:
+            source_tipo = self._normalize_field(source_row.get('tipo_serie'), 'tipo_serie')
+            target_tipo = self._normalize_field(target_row.get('tipo_serie'), 'tipo_serie')
+            
+            if source_tipo != target_tipo:
+                return False
         
         # Normalize and compare size
         source_size = self._normalize_field(source_row.get('size'), 'size')
@@ -233,7 +295,8 @@ class EmbeddingMatcher:
         source_name: str = "Source",
         target_name: str = "Target",
         threshold: float = 0.85,
-        enforce_business_rules: bool = True
+        enforce_business_rules: bool = True,
+        partial_business_rules: bool = False
     ) -> Tuple[pd.DataFrame, Dict]:
         """
         Match products from source to target using embeddings WITH or WITHOUT business rules.
@@ -249,6 +312,8 @@ class EmbeddingMatcher:
                 - size must match exactly (normalized)
                 - espesor must match exactly (normalized)
                 If False, uses only embedding similarity (useful for competitors with different nomenclature)
+            partial_business_rules: If True, enforces ONLY size and espesor matching, allows tipo_serie to vary
+                (useful for competitors with different nomenclature for product types)
             
         Returns:
             Tuple of (matched_df, stats_dict)
@@ -256,6 +321,8 @@ class EmbeddingMatcher:
         logger.info(f"Starting {'rule-based ' if enforce_business_rules else ''}embedding matching: {source_name} ({len(source_df)}) -> {target_name} ({len(target_df)})")
         if enforce_business_rules:
             logger.info("Business rules: tipo_serie, size, and espesor must match exactly")
+        elif partial_business_rules:
+            logger.info("Partial business rules: size and espesor must match, tipo_serie uses semantic matching")
         else:
             logger.info("Business rules: DISABLED - using pure semantic matching")
         
@@ -306,7 +373,7 @@ class EmbeddingMatcher:
         similarity_matrix = similarity_matrix / (source_norms @ target_norms.T)
         
         # Step 3: Process each source product with or without business rules
-        if enforce_business_rules:
+        if enforce_business_rules or partial_business_rules:
             logger.info("Applying business rules to filter matches...")
         else:
             logger.info("Matching based purely on semantic similarity...")
@@ -314,11 +381,13 @@ class EmbeddingMatcher:
         for i, source_row in enumerate(source_df.itertuples()):
             source_dict = source_df.iloc[i].to_dict()
             
-            if enforce_business_rules:
+            if enforce_business_rules or partial_business_rules:
                 # Find all target products that match the business rules
+                # If partial_business_rules, don't check tipo_serie (only size and espesor)
+                check_tipo = not partial_business_rules
                 valid_target_mask = []
                 for j, target_row in target_df.iterrows():
-                    valid_target_mask.append(self._fields_match(source_dict, target_row))
+                    valid_target_mask.append(self._fields_match(source_dict, target_row, check_tipo_serie=check_tipo))
                 
                 valid_target_mask = np.array(valid_target_mask)
                 

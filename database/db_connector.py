@@ -101,6 +101,25 @@ class DatabaseConnector:
             df['size'] = df['size'].fillna('').astype(str)
             df['tipo_serie'] = df['tipo_serie'].fillna('').astype(str)
             
+            # Fix espesor by inferring from product code if database value is incorrect
+            # Pattern: if code contains "EP" and espesor is STD, change to XS
+            # Examples: CRCEP904, TRLEP3, etc.
+            def fix_espesor(row):
+                codigo = str(row['codigo']).upper()
+                espesor = str(row['espesor']).upper()
+                descripcion = str(row['descripcion']).upper()
+                
+                # If code contains "EP" (Extra Pesado) or description contains "E.P.", set to XS
+                if ('EP' in codigo or 'E.P.' in descripcion) and espesor in ['STD', 'STANDARD', '']:
+                    return 'XS'
+                # If code contains "STD" explicitly and espesor is empty
+                elif 'STD' in codigo and espesor == '':
+                    return 'STD'
+                else:
+                    return espesor
+            
+            df['espesor'] = df.apply(fix_espesor, axis=1)
+            
             logger.info(f"Retrieved {len(df)} products from articulos table")
             logger.info(f"Products with prices: {df['dialfa_precio'].notna().sum()}")
             

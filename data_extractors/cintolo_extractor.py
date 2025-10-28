@@ -132,14 +132,21 @@ class CintoloExtractor:
                     except:
                         continue
                     
-                    # Extract size from description (e.g., "CODO 90° 2"" -> "2"")
+                    # Extract size from description - handles dual sizes for reducers
                     import re
-                    # Try to match standard sizes like 1/2", 3/4", 1", 1.1/2", 2.1/2", etc.
-                    size_match = re.search(r'(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']', descripcion)
-                    if not size_match:
-                        # Try to match without quotes
-                        size_match = re.search(r'\s(\d+(?:/\d+)?)\s*(?:"|$)', descripcion)
-                    size = size_match.group(1).replace('.', ' ') if size_match else ''
+                    # First, try to extract dual sizes (e.g., "6" X 3"")
+                    dual_size_match = re.search(r'(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']?\s*[Xx×\*]\s*(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']?', descripcion)
+                    if dual_size_match:
+                        size1 = dual_size_match.group(1).replace('.', ' ')
+                        size2 = dual_size_match.group(2).replace('.', ' ')
+                        size = f'{size1} X {size2}'
+                    else:
+                        # Single size (e.g., "2"", "1.1/2"")
+                        size_match = re.search(r'(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']', descripcion)
+                        if not size_match:
+                            # Try to match without quotes
+                            size_match = re.search(r'\s(\d+(?:/\d+)?)\s*(?:"|$)', descripcion)
+                        size = size_match.group(1).replace('.', ' ') if size_match else ''
                     
                     # Determine product type
                     desc_upper = descripcion.upper()
@@ -327,12 +334,24 @@ class CintoloExtractor:
         return ''
     
     def _extract_size(self, description):
-        """Extract size from description."""
+        """Extract size from description - handles dual sizes for reducers."""
         try:
             desc = str(description)
-            match = re.search(r'(\d+/?\d*)\s*["\']', desc)
+            
+            # First, try to extract dual sizes for reducers (e.g., "6" X 3"", "2.1/2" X 1"")
+            # Match patterns like: 6" X 3", 2.1/2" X 1", 1/2" x 1/4", etc.
+            dual_match = re.search(r'(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']?\s*[Xx×\*]\s*(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']?', desc)
+            if dual_match:
+                size1 = dual_match.group(1)
+                size2 = dual_match.group(2)
+                return f'{size1} X {size2}'
+            
+            # Single size with quotes (e.g., 6", 1/2")
+            match = re.search(r'(\d+(?:\.\d+)?(?:/\d+)?)\s*["\']', desc)
             if match:
                 return match.group(1)
+            
+            # Size in MM or INCH
             match = re.search(r'(\d+)\s*(MM|INCH)', desc, re.IGNORECASE)
             if match:
                 return match.group(1) + match.group(2).upper()
