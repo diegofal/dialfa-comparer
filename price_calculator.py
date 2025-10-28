@@ -91,8 +91,12 @@ class PriceCalculator:
                 if 'LARGO' not in tipo_serie and 'LR' not in tipo_serie and 'LONG' not in tipo_serie:
                     tipo_serie = 'ELBOW_90_SR'
             # 45° Elbows
-            elif any(x in tipo_serie for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45']):
+            elif any(x in tipo_serie for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45',
+                                                'CODO RADIO LARGO 45', 'CODO RADIO LARGO A 45']):
                 tipo_serie = 'ELBOW_45'
+            # 180° Elbows / Returns
+            elif any(x in tipo_serie for x in ['180', 'CODO 180', 'CR. LARGO Y CORTO 180', 'RETURN']):
+                tipo_serie = 'ELBOW_180'
             # Tees - need to distinguish between normal tees and reducing tees
             elif tipo_serie in ['TEE', 'TE', 'T']:
                 # Check description to see if it's a reducing tee
@@ -100,13 +104,16 @@ class PriceCalculator:
                     tipo_serie = 'REDUCER_TEE'
                 else:
                     tipo_serie = 'TEE'
+            # Caps / Casquetes
+            elif any(x in tipo_serie for x in ['CAP', 'CAS', 'CASQUETE', 'SEMIELIPTICO']):
+                tipo_serie = 'CAP'
             # Reducers
-            elif any(x in tipo_serie for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE']):
-                if 'TEE' in tipo_serie or 'T' in tipo_serie:
+            elif any(x in tipo_serie for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE', 'TE RED']):
+                if 'TEE' in tipo_serie or 'TE RED' in tipo_serie:
                     tipo_serie = 'REDUCER_TEE'
-                elif 'CON' in tipo_serie or 'CONCENTRIC' in tipo_serie:
+                elif 'CON' in tipo_serie or 'CONCENTRIC' in tipo_serie or 'CONCENTRICA' in tipo_serie:
                     tipo_serie = 'REDUCER_CONCENTRIC'
-                elif 'EXC' in tipo_serie or 'ECCENTRIC' in tipo_serie:
+                elif 'EXC' in tipo_serie or 'ECCENTRIC' in tipo_serie or 'EXCENTRICA' in tipo_serie:
                     tipo_serie = 'REDUCER_ECCENTRIC'
                 else:
                     tipo_serie = 'REDUCER'
@@ -133,6 +140,12 @@ class PriceCalculator:
             
             # NOW normalize size (after tipo_serie is normalized)
             size = size.replace('"', '').replace("'", "").strip()
+            
+            # Remove .0 suffix from float strings (e.g., "1.0" -> "1", "12.0" -> "12")
+            # This handles OCR-extracted sizes that come as floats
+            if re.match(r'^\d+\.0$', size):
+                size = size.replace('.0', '')
+            
             # Normalize spaces in fractions: "1 1/2" should match "1.1/2" and "11/2"
             # First remove dots before digits that precede slashes
             size = re.sub(r'\.(\d+/)', r' \1', size)  # "2.1/2" -> "2 1/2"

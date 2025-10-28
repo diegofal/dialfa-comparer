@@ -98,7 +98,10 @@ class EmbeddingMatcher:
             cached_embeddings = self.cache_manager.load_embeddings(cache_key)
             if cached_embeddings is not None and len(cached_embeddings) == len(texts):
                 logger.info(f"Using cached embeddings for {cache_key} (saved API cost!)")
-                return cached_embeddings.tolist()
+                # Convert to list if it's a numpy array, otherwise return as-is
+                if hasattr(cached_embeddings, 'tolist'):
+                    return cached_embeddings.tolist()
+                return cached_embeddings
         
         try:
             # OpenAI API allows up to 2048 texts per batch
@@ -183,8 +186,13 @@ class EmbeddingMatcher:
                     return 'ELBOW_90_SR'
             
             # 45° Elbows
-            if any(x in value_str for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45']):
+            if any(x in value_str for x in ['45D LR ELBOW', '45 LR ELBOW', '45D ELBOW', 'CODO 45', 'CODOS 45', 
+                                              'CODO RADIO LARGO 45', 'CODO RADIO LARGO A 45']):
                 return 'ELBOW_45'
+            
+            # 180° Elbows / Returns
+            if any(x in value_str for x in ['180', 'CODO 180', 'CR. LARGO Y CORTO 180', 'RETURN']):
+                return 'ELBOW_180'
             
             # Tees - need to distinguish between normal tees and reducing tees
             if value_str in ['TEE', 'TE', 'T']:
@@ -193,13 +201,17 @@ class EmbeddingMatcher:
                 # But the description field will be part of the embedding
                 return 'TEE'
             
-            # Reducers
-            if any(x in value_str for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE']):
-                if 'TEE' in value_str or 'T' in value_str:
+            # Caps / Casquetes
+            if any(x in value_str for x in ['CAP', 'CAS', 'CASQUETE', 'SEMIELIPTICO']):
+                return 'CAP'
+            
+            # Reducers - all types
+            if any(x in value_str for x in ['RED.', 'REDUCER', 'REDUCCION', 'CON. RED', 'EXC. RED', 'RED. TEE', 'TE RED']):
+                if 'TEE' in value_str or 'TE RED' in value_str:
                     return 'REDUCER_TEE'
-                elif 'CON' in value_str or 'CONCENTRIC' in value_str:
+                elif 'CON' in value_str or 'CONCENTRIC' in value_str or 'CONCENTRICA' in value_str:
                     return 'REDUCER_CONCENTRIC'
-                elif 'EXC' in value_str or 'ECCENTRIC' in value_str:
+                elif 'EXC' in value_str or 'ECCENTRIC' in value_str or 'EXCENTRICA' in value_str:
                     return 'REDUCER_ECCENTRIC'
                 return 'REDUCER'
             
