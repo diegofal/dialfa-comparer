@@ -232,18 +232,11 @@ class EmbeddingMatcher:
         target_df: pd.DataFrame,
         source_name: str = "Source",
         target_name: str = "Target",
-        threshold: float = 0.85
+        threshold: float = 0.85,
+        enforce_business_rules: bool = True
     ) -> Tuple[pd.DataFrame, Dict]:
         """
-        Match products from source to target using embeddings WITH business rules.
-        
-        IMPORTANT: This method enforces strict matching rules:
-        - tipo_serie must match exactly (normalized)
-        - size must match exactly (normalized)
-        - espesor must match exactly (normalized)
-        
-        Only then does it use embedding similarity to find the best match within
-        products that pass these business rules.
+        Match products from source to target using embeddings WITH or WITHOUT business rules.
         
         Args:
             source_df: Source DataFrame (e.g., Dialfa products)
@@ -251,12 +244,20 @@ class EmbeddingMatcher:
             source_name: Name for source dataset (for logging)
             target_name: Name for target dataset (for logging)
             threshold: Minimum similarity score to consider a match (0-1)
+            enforce_business_rules: If True, enforces strict matching rules:
+                - tipo_serie must match exactly (normalized)
+                - size must match exactly (normalized)
+                - espesor must match exactly (normalized)
+                If False, uses only embedding similarity (useful for competitors with different nomenclature)
             
         Returns:
             Tuple of (matched_df, stats_dict)
         """
-        logger.info(f"Starting rule-based embedding matching: {source_name} ({len(source_df)}) -> {target_name} ({len(target_df)})")
-        logger.info("Business rules: tipo_serie, size, and espesor must match exactly")
+        logger.info(f"Starting {'rule-based ' if enforce_business_rules else ''}embedding matching: {source_name} ({len(source_df)}) -> {target_name} ({len(target_df)})")
+        if enforce_business_rules:
+            logger.info("Business rules: tipo_serie, size, and espesor must match exactly")
+        else:
+            logger.info("Business rules: DISABLED - using pure semantic matching")
         
         if target_df.empty:
             logger.warning(f"Target dataset {target_name} is empty. Skipping matching.")
@@ -304,27 +305,35 @@ class EmbeddingMatcher:
         target_norms = np.linalg.norm(target_embeddings_np, axis=1, keepdims=True)
         similarity_matrix = similarity_matrix / (source_norms @ target_norms.T)
         
-        # Step 3: Process each source product with business rules
-        logger.info("Applying business rules to filter matches...")
+        # Step 3: Process each source product with or without business rules
+        if enforce_business_rules:
+            logger.info("Applying business rules to filter matches...")
+        else:
+            logger.info("Matching based purely on semantic similarity...")
+            
         for i, source_row in enumerate(source_df.itertuples()):
             source_dict = source_df.iloc[i].to_dict()
             
-            # Find all target products that match the business rules
-            valid_target_mask = []
-            for j, target_row in target_df.iterrows():
-                valid_target_mask.append(self._fields_match(source_dict, target_row))
-            
-            valid_target_mask = np.array(valid_target_mask)
-            
-            if not valid_target_mask.any():
-                # No products match the business rules
-                unmatched_count += 1
-                rule_filtered_count += 1
-                continue
-            
-            # Get similarities only for valid targets
-            valid_similarities = similarity_matrix[i].copy()
-            valid_similarities[~valid_target_mask] = -1  # Mask out invalid matches
+            if enforce_business_rules:
+                # Find all target products that match the business rules
+                valid_target_mask = []
+                for j, target_row in target_df.iterrows():
+                    valid_target_mask.append(self._fields_match(source_dict, target_row))
+                
+                valid_target_mask = np.array(valid_target_mask)
+                
+                if not valid_target_mask.any():
+                    # No products match the business rules
+                    unmatched_count += 1
+                    rule_filtered_count += 1
+                    continue
+                
+                # Get similarities only for valid targets
+                valid_similarities = similarity_matrix[i].copy()
+                valid_similarities[~valid_target_mask] = -1  # Mask out invalid matches
+            else:
+                # Use all similarities without business rule filtering
+                valid_similarities = similarity_matrix[i]
             
             best_idx = valid_similarities.argmax()
             best_score = valid_similarities[best_idx]
@@ -359,14 +368,17 @@ class EmbeddingMatcher:
         
         logger.info(f"✓ Matching complete:")
         logger.info(f"  - Matched: {matched_count}")
-        logger.info(f"  - Unmatched (no business rule match): {rule_filtered_count}")
-        logger.info(f"  - Unmatched (low similarity): {unmatched_count - rule_filtered_count}")
+        if enforce_business_rules:
+            logger.info(f"  - Unmatched (no business rule match): {rule_filtered_count}")
+            logger.info(f"  - Unmatched (low similarity): {unmatched_count - rule_filtered_count}")
+        else:
+            logger.info(f"  - Unmatched (low similarity): {unmatched_count}")
         logger.info(f"  - Total unmatched: {unmatched_count}")
         
         stats = {
             'matched': matched_count,
             'unmatched': unmatched_count,
-            'rule_filtered': rule_filtered_count,
+            'rule_filtered': rule_filtered_count if enforce_business_rules else 0,
             'match_rate': round((matched_count / len(source_df)) * 100, 2) if len(source_df) > 0 else 0,
             'threshold': threshold
         }

@@ -218,10 +218,12 @@ class PriceCalculator:
         
         logger.info(f"Matched {len(result)} products with exact key matching")
         
-        # Try AI-powered matching for unmatched items (Citizen only for now)
+        # Try AI-powered matching for unmatched items
         if self.use_embeddings and self.embedding_matcher:
             logger.info("🤖 Starting AI-powered matching with embeddings...")
             result = self._embedding_match_citizen(result)
+            result = self._embedding_match_cintolo(result)
+            result = self._embedding_match_zaloze(result)
         else:
             # Fallback to fuzzy matching
             logger.info("Using traditional fuzzy matching...")
@@ -283,6 +285,124 @@ class PriceCalculator:
             logger.error(f"❌ Embedding matching failed: {e}")
             logger.info("Falling back to fuzzy matching...")
             return self._fuzzy_match_unmatched(df)
+        
+        return df
+    
+    def _embedding_match_cintolo(self, df):
+        """
+        Apply AI-powered embedding matching for Cintolo competitor products that didn't match exactly.
+        Only processes unmatched products for cost efficiency.
+        """
+        if self.cintolo_data.empty:
+            logger.info("No Cintolo data available for embedding matching")
+            return df
+        
+        unmatched_mask = df['cintolo_precio'].isna()
+        unmatched_count = unmatched_mask.sum()
+        
+        if unmatched_count == 0:
+            logger.info("✓ All Cintolo products matched exactly with keys")
+            return df
+        
+        logger.info(f"🔍 AI matching {unmatched_count} unmatched products against {len(self.cintolo_data)} Cintolo products...")
+        
+        # Only process unmatched products (cost optimization)
+        unmatched_df = df[unmatched_mask].copy()
+        
+        try:
+            # Use embedding matcher WITHOUT business rules for Cintolo (different nomenclature)
+            matched_df, stats = self.embedding_matcher.match_products(
+                source_df=unmatched_df,
+                target_df=self.cintolo_data,
+                source_name="Dialfa",
+                target_name="Cintolo",
+                threshold=0.70,  # Lowered threshold for semantic matching
+                enforce_business_rules=False  # Disable strict rules due to different nomenclature
+            )
+            
+            # Merge results back into main dataframe
+            # Use embedding results if available
+            for idx in matched_df.index:
+                if pd.notna(matched_df.loc[idx, 'cintolo_precio_emb']):
+                    # Get matched Cintolo product
+                    cintolo_codigo = matched_df.loc[idx, 'cintolo_codigo_emb']
+                    cintolo_desc = matched_df.loc[idx, 'cintolo_descripcion_emb']
+                    cintolo_precio = matched_df.loc[idx, 'cintolo_precio_emb']
+                    
+                    df.loc[idx, 'cintolo_codigo'] = cintolo_codigo
+                    df.loc[idx, 'cintolo_descripcion'] = cintolo_desc
+                    df.loc[idx, 'cintolo_precio'] = cintolo_precio
+                    score = matched_df.loc[idx, 'cintolo_match_score']
+                    
+                    # Update match type with Cintolo info
+                    current_match = df.loc[idx, 'match_status'] if 'match_status' in df.columns else ''
+                    df.loc[idx, 'cintolo_match_type'] = f'AI Embedding ({score}%)'
+            
+            logger.info(f"✓ Cintolo AI matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
+            
+        except Exception as e:
+            logger.error(f"❌ Cintolo embedding matching failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+        
+        return df
+    
+    def _embedding_match_zaloze(self, df):
+        """
+        Apply AI-powered embedding matching for Zaloze competitor products that didn't match exactly.
+        Only processes unmatched products for cost efficiency.
+        """
+        if self.zaloze_data.empty:
+            logger.info("No Zaloze data available for embedding matching")
+            return df
+        
+        unmatched_mask = df['zaloze_precio'].isna()
+        unmatched_count = unmatched_mask.sum()
+        
+        if unmatched_count == 0:
+            logger.info("✓ All Zaloze products matched exactly with keys")
+            return df
+        
+        logger.info(f"🔍 AI matching {unmatched_count} unmatched products against {len(self.zaloze_data)} Zaloze products...")
+        
+        # Only process unmatched products (cost optimization)
+        unmatched_df = df[unmatched_mask].copy()
+        
+        try:
+            # Use embedding matcher WITHOUT business rules for Zaloze (different nomenclature)
+            matched_df, stats = self.embedding_matcher.match_products(
+                source_df=unmatched_df,
+                target_df=self.zaloze_data,
+                source_name="Dialfa",
+                target_name="Zaloze",
+                threshold=0.70,  # Lowered threshold for semantic matching
+                enforce_business_rules=False  # Disable strict rules due to different nomenclature
+            )
+            
+            # Merge results back into main dataframe
+            # Use embedding results if available
+            for idx in matched_df.index:
+                if pd.notna(matched_df.loc[idx, 'zaloze_precio_emb']):
+                    # Get matched Zaloze product
+                    zaloze_codigo = matched_df.loc[idx, 'zaloze_codigo_emb']
+                    zaloze_desc = matched_df.loc[idx, 'zaloze_descripcion_emb']
+                    zaloze_precio = matched_df.loc[idx, 'zaloze_precio_emb']
+                    
+                    df.loc[idx, 'zaloze_codigo'] = zaloze_codigo
+                    df.loc[idx, 'zaloze_descripcion'] = zaloze_desc
+                    df.loc[idx, 'zaloze_precio'] = zaloze_precio
+                    score = matched_df.loc[idx, 'zaloze_match_score']
+                    
+                    # Update match type with Zaloze info
+                    current_match = df.loc[idx, 'match_status'] if 'match_status' in df.columns else ''
+                    df.loc[idx, 'zaloze_match_type'] = f'AI Embedding ({score}%)'
+            
+            logger.info(f"✓ Zaloze AI matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
+            
+        except Exception as e:
+            logger.error(f"❌ Zaloze embedding matching failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         
         return df
     
