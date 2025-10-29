@@ -38,7 +38,8 @@ last_params = {}  # Track last used parameters to invalidate cache when they cha
 force_refresh = os.environ.get('FORCE_REFRESH', 'false').lower() == 'true'
 
 
-def load_and_process_data(use_cache=True, discount_percent=30, nationalization_percent=150):
+def load_and_process_data(use_cache=True, discount_percent=30, nationalization_percent=150, 
+                          cintolo_discount=20, zaloze_discount=20):
     """
     Load data from all sources and process comparisons.
     
@@ -46,6 +47,8 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         use_cache: If True, use cached CSV files when available
         discount_percent: Discount percentage to apply to ALL products (default: 30%)
         nationalization_percent: Nationalization percentage for FOB prices
+        cintolo_discount: Discount percentage for Cintolo prices (default: 20%)
+        zaloze_discount: Discount percentage for Zaloze prices (default: 20%)
     """
     global cached_results, cached_matched_data, extraction_errors
     
@@ -63,7 +66,9 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 zaloze_data=cached_matched_data['zaloze_data'],
                 use_embeddings=False,  # Skip embedding initialization
                 discount_percent=discount_percent,
-                nationalization_percent=nationalization_percent
+                nationalization_percent=nationalization_percent,
+                cintolo_discount=cintolo_discount,
+                zaloze_discount=zaloze_discount
             )
             
             # Use the pre-matched data
@@ -187,7 +192,9 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
             use_embeddings=True,  # Enable AI-powered matching
             cache_manager=data_cache,  # Pass cache manager for embeddings
             discount_percent=discount_percent,
-            nationalization_percent=nationalization_percent
+            nationalization_percent=nationalization_percent,
+            cintolo_discount=cintolo_discount,
+            zaloze_discount=zaloze_discount
         )
         
         # First, do matching (expensive - only once)
@@ -263,11 +270,15 @@ def get_data():
         # Get pricing configuration from query parameters
         discount_percent = float(request.args.get('discount_percent', 30))
         nationalization_percent = float(request.args.get('nationalization_percent', 150))
+        cintolo_discount = float(request.args.get('cintolo_discount', 20))
+        zaloze_discount = float(request.args.get('zaloze_discount', 20))
         
         # Check if parameters changed - if so, invalidate cache
         current_params = {
             'discount_percent': discount_percent,
-            'nationalization_percent': nationalization_percent
+            'nationalization_percent': nationalization_percent,
+            'cintolo_discount': cintolo_discount,
+            'zaloze_discount': zaloze_discount
         }
         
         params_changed = last_params != current_params
@@ -284,7 +295,9 @@ def get_data():
             load_and_process_data(
                 use_cache=not force_refresh,
                 discount_percent=discount_percent,
-                nationalization_percent=nationalization_percent
+                nationalization_percent=nationalization_percent,
+                cintolo_discount=cintolo_discount,
+                zaloze_discount=zaloze_discount
             )
         
         if cached_results is None or cached_results.empty:
@@ -342,6 +355,446 @@ def refresh_data():
     cached_matched_data = None  # Clear matched data too, forcing full re-matching
     load_and_process_data(use_cache=False)  # Force regeneration
     return jsonify({'status': 'success', 'message': 'Data refreshed'})
+
+
+@app.route('/api/export/html', methods=['GET', 'POST'])
+def export_html():
+    """API endpoint to export data as a standalone HTML file."""
+    from flask import make_response
+    from datetime import datetime
+    
+    try:
+        if request.method == 'POST':
+            # Receive filtered data from frontend
+            request_data = request.get_json()
+            data = request_data.get('data', [])
+            discount_percent = float(request_data.get('discount_percent', 30))
+            nationalization_percent = float(request_data.get('nationalization_percent', 150))
+            cintolo_discount = float(request_data.get('cintolo_discount', 20))
+            zaloze_discount = float(request_data.get('zaloze_discount', 20))
+            filters = request_data.get('filters', {})
+            
+            if not data:
+                return "No data to export", 400
+            
+            # Calculate summary statistics from filtered data
+            df = pd.DataFrame(data)
+            summary = {
+                'total_products': int(len(df)),
+                'matched_products': int(df['precio_fob_ponderado'].notna().sum()) if 'precio_fob_ponderado' in df.columns else 0,
+                'unmatched_citizen': int(df['precio_fob_ponderado'].isna().sum()) if 'precio_fob_ponderado' in df.columns else 0,
+                'matched_cintolo': int(df['cintolo_precio'].notna().sum()) if 'cintolo_precio' in df.columns else 0,
+                'unmatched_cintolo': int(df['cintolo_precio'].isna().sum()) if 'cintolo_precio' in df.columns else 0,
+                'matched_zaloze': int(df['zaloze_precio'].notna().sum()) if 'zaloze_precio' in df.columns else 0,
+                'unmatched_zaloze': int(df['zaloze_precio'].isna().sum()) if 'zaloze_precio' in df.columns else 0,
+                'average_margin': float(df['margin_percent'].mean()) if 'margin_percent' in df.columns and len(df) > 0 else 0.0,
+                'average_markup': float(df['markup_percent'].mean()) if 'markup_percent' in df.columns and len(df) > 0 else 0.0,
+                'low_margin_products': int((df['margin_category'] == 'low').sum()) if 'margin_category' in df.columns else 0,
+                'medium_margin_products': int((df['margin_category'] == 'medium').sum()) if 'margin_category' in df.columns else 0,
+                'high_margin_products': int((df['margin_category'] == 'high').sum()) if 'margin_category' in df.columns else 0
+            }
+            
+            # Add filter information to the export
+            filter_text = []
+            if filters.get('margin'):
+                filter_labels = {'high': 'Alto (>40%)', 'medium': 'Medio (20-40%)', 'low': 'Bajo (<20%)'}
+                filter_text.append(f"Margen: {filter_labels.get(filters['margin'], filters['margin'])}")
+            if filters.get('match'):
+                filter_labels = {'matched': 'Mapeados', 'unmatched': 'Sin Mapear'}
+                filter_text.append(f"Estado: {filter_labels.get(filters['match'], filters['match'])}")
+            if filters.get('position'):
+                filter_text.append(f"Posición: {filters['position']}")
+            
+            filter_info = " | ".join(filter_text) if filter_text else "Sin filtros aplicados"
+            
+        else:
+            # GET method - export all data (legacy support)
+            discount_percent = float(request.args.get('discount_percent', 30))
+            nationalization_percent = float(request.args.get('nationalization_percent', 150))
+            cintolo_discount = float(request.args.get('cintolo_discount', 20))
+            zaloze_discount = float(request.args.get('zaloze_discount', 20))
+            
+            # Ensure data is loaded with current parameters
+            if cached_results is None:
+                load_and_process_data(
+                    use_cache=not force_refresh,
+                    discount_percent=discount_percent,
+                    nationalization_percent=nationalization_percent,
+                    cintolo_discount=cintolo_discount,
+                    zaloze_discount=zaloze_discount
+                )
+            
+            if cached_results is None or cached_results.empty:
+                return "No data available to export", 400
+            
+            # Convert DataFrame to list of dictionaries
+            data = cached_results.astype(object).where(pd.notna(cached_results), None).to_dict('records')
+            
+            # Calculate summary statistics
+            summary = {
+                'total_products': int(len(cached_results)),
+                'matched_products': int(cached_results['precio_fob_ponderado'].notna().sum()),
+                'unmatched_citizen': int(cached_results['precio_fob_ponderado'].isna().sum()),
+                'matched_cintolo': int(cached_results['cintolo_precio'].notna().sum()),
+                'unmatched_cintolo': int(cached_results['cintolo_precio'].isna().sum()),
+                'matched_zaloze': int(cached_results['zaloze_precio'].notna().sum()),
+                'unmatched_zaloze': int(cached_results['zaloze_precio'].isna().sum()),
+                'average_margin': float(cached_results['margin_percent'].mean()) if 'margin_percent' in cached_results else 0.0,
+                'average_markup': float(cached_results['markup_percent'].mean()) if 'markup_percent' in cached_results else 0.0,
+                'low_margin_products': int((cached_results['margin_category'] == 'low').sum()) if 'margin_category' in cached_results else 0,
+                'medium_margin_products': int((cached_results['margin_category'] == 'medium').sum()) if 'margin_category' in cached_results else 0,
+                'high_margin_products': int((cached_results['margin_category'] == 'high').sum()) if 'margin_category' in cached_results else 0
+            }
+            
+            filter_info = "Todos los productos (sin filtros)"
+        
+        # Generate HTML content
+        html_content = generate_export_html(data, summary, discount_percent, nationalization_percent, 
+                                            cintolo_discount, zaloze_discount, filter_info)
+        
+        # Create response with proper headers for download
+        response = make_response(html_content)
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        response.headers['Content-Disposition'] = f'attachment; filename=comparacion_precios_{datetime.now().strftime("%Y-%m-%d_%H-%M")}.html'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in export_html: {e}\n{traceback.format_exc()}")
+        return f"Error generating HTML export: {str(e)}", 500
+
+
+def generate_export_html(data, summary, discount_percent, nationalization_percent, 
+                         cintolo_discount, zaloze_discount, filter_info="Sin filtros aplicados"):
+    """Generate a standalone HTML file with embedded styles and data."""
+    from datetime import datetime
+    
+    # Helper function to format numbers
+    def fmt(val):
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return '-'
+        try:
+            return f"{float(val):.2f}"
+        except (ValueError, TypeError):
+            return str(val)
+    
+    # Generate table rows
+    rows_html = []
+    for row in data:
+        margin_class = f"margin-{row.get('margin_category', '')}" if row.get('margin_category') else ""
+        
+        # Market position formatting
+        position = row.get('market_position', 'N/A')
+        position_class = 'position-cheapest' if position == 'Cheapest' else \
+                        'position-expensive' if position == 'Most Expensive' else \
+                        'position-middle' if position == 'Middle' else ''
+        
+        # Match status badge
+        match_status = row.get('match_status', 'Unknown')
+        badge_class = 'badge-danger' if match_status == 'Unmatched' else 'badge-success'
+        
+        rows_html.append(f'''
+            <tr class="{margin_class}">
+                <td>{row.get('codigo', '-')}</td>
+                <td>{row.get('descripcion', '-')}</td>
+                <td class="price">${fmt(row.get('dialfa_precio'))}</td>
+                <td class="price">{'$' + fmt(row.get('precio_con_descuento')) if row.get('precio_con_descuento') else '-'}</td>
+                <td>{row.get('citizen_producto', '-')}</td>
+                <td class="price" style="text-align: center;">{str(round(row.get('cantidad'))) + ' uds' if row.get('cantidad') else '-'}</td>
+                <td class="price">${fmt(row.get('precio_fob_min'))}</td>
+                <td class="price">${fmt(row.get('precio_fob_max'))}</td>
+                <td class="price">${fmt(row.get('precio_fob_ponderado'))}</td>
+                <td class="price">{'$' + fmt(row.get('citizen_precio_nacionalizado')) if row.get('citizen_precio_nacionalizado') else '-'}</td>
+                <td class="price">{fmt(row.get('markup_percent')) + '%' if row.get('markup_percent') is not None else '-'}</td>
+                <td class="price">{fmt(row.get('margin_percent')) + '%' if row.get('margin_percent') is not None else '-'}</td>
+                <td title="{row.get('cintolo_descripcion', 'Sin match')}">{row.get('cintolo_descripcion', '-')}</td>
+                <td class="price">{'$' + fmt(row.get('cintolo_precio')) if row.get('cintolo_precio') else '-'}</td>
+                <td class="price">{fmt(row.get('diff_percent_cintolo')) + '%' if row.get('diff_percent_cintolo') else '-'}</td>
+                <td title="{row.get('zaloze_descripcion', 'Sin match')}">{row.get('zaloze_descripcion', '-')}</td>
+                <td class="price">{'$' + fmt(row.get('zaloze_precio')) if row.get('zaloze_precio') else '-'}</td>
+                <td class="price">{fmt(row.get('diff_percent_zaloze')) + '%' if row.get('diff_percent_zaloze') else '-'}</td>
+                <td class="{position_class}">{position}</td>
+                <td><span class="badge {badge_class}">{match_status}</span></td>
+            </tr>
+        ''')
+    
+    # Generate full HTML document
+    html = f'''<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparación de Precios - Dialfa - {datetime.now().strftime("%Y-%m-%d %H:%M")}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }}
+        
+        .container {{
+            max-width: 100%;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        
+        h1 {{
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }}
+        
+        .subtitle {{
+            color: #7f8c8d;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }}
+        
+        .export-info {{
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }}
+        
+        .export-info strong {{
+            color: #2c3e50;
+        }}
+        
+        .summary-cards {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }}
+        
+        .card {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        
+        .card.green {{
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }}
+        
+        .card.orange {{
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }}
+        
+        .card.blue {{
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }}
+        
+        .card-title {{
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 10px;
+        }}
+        
+        .card-value {{
+            font-size: 32px;
+            font-weight: bold;
+        }}
+        
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 12px;
+        }}
+        
+        thead th {{
+            background-color: #34495e;
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }}
+        
+        tbody td {{
+            padding: 10px 8px;
+            border-bottom: 1px solid #ecf0f1;
+        }}
+        
+        tbody tr:hover {{
+            background-color: #ecf0f1;
+        }}
+        
+        .margin-low {{
+            background-color: #ffebee !important;
+            color: #c62828;
+        }}
+        
+        .margin-medium {{
+            background-color: #fff8e1 !important;
+            color: #f57c00;
+        }}
+        
+        .margin-high {{
+            background-color: #e8f5e9 !important;
+            color: #2e7d32;
+        }}
+        
+        .price {{
+            text-align: right;
+            font-family: 'Courier New', monospace;
+        }}
+        
+        .badge {{
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        
+        .badge-success {{
+            background-color: #d4edda;
+            color: #155724;
+        }}
+        
+        .badge-danger {{
+            background-color: #f8d7da;
+            color: #721c24;
+        }}
+        
+        .position-cheapest {{
+            color: #27ae60;
+            font-weight: bold;
+        }}
+        
+        .position-expensive {{
+            color: #e74c3c;
+            font-weight: bold;
+        }}
+        
+        .position-middle {{
+            color: #f39c12;
+            font-weight: bold;
+        }}
+        
+        @media print {{
+            body {{
+                padding: 0;
+            }}
+            .container {{
+                box-shadow: none;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Sistema de Comparación de Precios - Dialfa</h1>
+        <p class="subtitle">Comparación integral: Dialfa vs Citizen (Proveedor) vs Competencia (Cintolo, Zaloze)</p>
+        
+        <div class="export-info">
+            <strong>📅 Fecha de exportación:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}<br>
+            <strong>💰 Descuento Dialfa:</strong> {discount_percent}%<br>
+            <strong>🌍 Nacionalización:</strong> {nationalization_percent}%<br>
+            <strong>🏪 Descuento Cintolo:</strong> {cintolo_discount}%<br>
+            <strong>🏪 Descuento Zaloze:</strong> {zaloze_discount}%<br>
+            <strong>🔍 Filtros aplicados:</strong> {filter_info}<br>
+            <strong>📦 Total de productos:</strong> {summary['total_products']}
+        </div>
+        
+        <div class="summary-cards">
+            <div class="card">
+                <div class="card-title">Total Productos Dialfa</div>
+                <div class="card-value">{summary['total_products']}</div>
+            </div>
+            <div class="card green">
+                <div class="card-title">✓ Match Citizen</div>
+                <div class="card-value">{summary['matched_products']}</div>
+            </div>
+            <div class="card orange">
+                <div class="card-title">✗ Sin Match Citizen</div>
+                <div class="card-value">{summary['unmatched_citizen']}</div>
+            </div>
+            <div class="card blue">
+                <div class="card-title">Margen Promedio</div>
+                <div class="card-value">{summary['average_margin']:.1f}%</div>
+            </div>
+        </div>
+        
+        <div class="summary-cards">
+            <div class="card" style="background: linear-gradient(135deg, #a8e063 0%, #56ab2f 100%);">
+                <div class="card-title">✓ Match Cintolo</div>
+                <div class="card-value">{summary['matched_cintolo']}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);">
+                <div class="card-title">✗ Sin Match Cintolo</div>
+                <div class="card-value">{summary['unmatched_cintolo']}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);">
+                <div class="card-title">✓ Match Zaloze</div>
+                <div class="card-value">{summary['matched_zaloze']}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fddb92 0%, #d1fdff 100%); color: #333;">
+                <div class="card-title">✗ Sin Match Zaloze</div>
+                <div class="card-value">{summary['unmatched_zaloze']}</div>
+            </div>
+        </div>
+        
+        <h2 style="color: #2c3e50; margin-top: 30px; margin-bottom: 15px;">Detalle de Productos</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Código Dialfa</th>
+                    <th>Descripción</th>
+                    <th>Precio Dialfa</th>
+                    <th>Precio c/ Descuento</th>
+                    <th>Producto Citizen</th>
+                    <th>Cantidad Total</th>
+                    <th>FOB Min</th>
+                    <th>FOB Max</th>
+                    <th>FOB Ponderado</th>
+                    <th>FOB Pond. + Nac.</th>
+                    <th>Rentabilidad %</th>
+                    <th>Margen Bruto %</th>
+                    <th>Match Cintolo</th>
+                    <th>Precio Cintolo</th>
+                    <th>Dif vs Cintolo</th>
+                    <th>Match Zaloze</th>
+                    <th>Precio Zaloze</th>
+                    <th>Dif vs Zaloze</th>
+                    <th>Posición Mercado</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(rows_html)}
+            </tbody>
+        </table>
+        
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; font-size: 12px; color: #6c757d;">
+            <strong>Notas:</strong><br>
+            • <strong>Rentabilidad %:</strong> Markup = (Precio Final - Costo) / Costo × 100<br>
+            • <strong>Margen Bruto %:</strong> Margen = (Precio Final - Costo) / Precio Final × 100<br>
+            • <strong>Categorías de Margen:</strong> Bajo (<20%), Medio (20-40%), Alto (>40%)<br>
+            • Este reporte fue generado automáticamente por el Sistema de Comparación de Precios - Dialfa
+        </div>
+    </div>
+</body>
+</html>'''
+    
+    return html
 
 
 if __name__ == '__main__':

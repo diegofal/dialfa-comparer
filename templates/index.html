@@ -340,7 +340,7 @@
         
         <div class="config-panel">
             <h3>⚙️ Configuración de Precios</h3>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px;">
                 <div class="filter-group">
                     <label>Descuento Universal (%)</label>
                     <input type="number" id="discount-percent" value="30" min="0" max="100" step="1"
@@ -357,6 +357,22 @@
                         Costos de importación. Ejemplo: 150% → FOB × 2.5
                     </small>
                 </div>
+                <div class="filter-group">
+                    <label>Descuento Cintolo (%)</label>
+                    <input type="number" id="cintolo-discount" value="20" min="0" max="100" step="1"
+                           title="Porcentaje de descuento aplicado a precios de Cintolo">
+                    <small style="color: #6c757d; font-size: 11px; margin-top: 5px; display: block;">
+                        Descuento sobre lista Cintolo. Ejemplo: 20% → precio × 0.80
+                    </small>
+                </div>
+                <div class="filter-group">
+                    <label>Descuento Zaloze (%)</label>
+                    <input type="number" id="zaloze-discount" value="20" min="0" max="100" step="1"
+                           title="Porcentaje de descuento aplicado a precios de Zaloze">
+                    <small style="color: #6c757d; font-size: 11px; margin-top: 5px; display: block;">
+                        Descuento sobre lista Zaloze. Ejemplo: 20% → precio × 0.80
+                    </small>
+                </div>
                 <div style="display: flex; align-items: flex-end;">
                     <button onclick="applyPricingConfig()" style="width: 100%; background-color: #e67e22; font-weight: 600; height: 45px;">
                         💰 Aplicar Configuración
@@ -364,8 +380,9 @@
                 </div>
             </div>
             <p class="info-text">
-                💡 <strong>Descuento Universal:</strong> Se aplica a TODOS los productos (0% = sin descuento). 
+                💡 <strong>Descuento Universal:</strong> Se aplica a TODOS los productos Dialfa (0% = sin descuento). 
                 <strong>Nacionalización:</strong> Incremento (%) sobre precio FOB de Citizen para costos de importación.
+                <strong>Descuentos Cintolo/Zaloze:</strong> Descuentos sobre las listas de precios de competidores.
                 <br>
                 📊 Los márgenes se calculan usando el precio final (con descuento si > 0%) y el precio nacionalizado.
             </p>
@@ -402,6 +419,7 @@
             </div>
             <div>
                 <button onclick="exportToCSV()" class="btn-success">📥 Exportar CSV</button>
+                <button onclick="exportToHTML()" class="btn-success" style="background-color: #9b59b6;">📄 Exportar HTML</button>
                 <button onclick="refreshData()">🔄 Actualizar</button>
             </div>
         </div>
@@ -453,8 +471,10 @@
             // Get pricing configuration parameters
             const discountPercent = document.getElementById('discount-percent').value;
             const nationalizationPercent = document.getElementById('nationalization-percent').value;
+            const cintoloDiscount = document.getElementById('cintolo-discount').value;
+            const zalozeDiscount = document.getElementById('zaloze-discount').value;
             
-            const url = `/api/data?discount_percent=${discountPercent}&nationalization_percent=${nationalizationPercent}`;
+            const url = `/api/data?discount_percent=${discountPercent}&nationalization_percent=${nationalizationPercent}&cintolo_discount=${cintoloDiscount}&zaloze_discount=${zalozeDiscount}`;
             
             fetch(url)
                 .then(response => response.json())
@@ -636,6 +656,78 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        }
+        
+        function exportToHTML() {
+            // Get current pricing configuration
+            const discountPercent = document.getElementById('discount-percent').value;
+            const nationalizationPercent = document.getElementById('nationalization-percent').value;
+            const cintoloDiscount = document.getElementById('cintolo-discount').value;
+            const zalozeDiscount = document.getElementById('zaloze-discount').value;
+            
+            // Get current filters
+            const marginFilter = document.getElementById('margin-filter').value;
+            const matchFilter = document.getElementById('match-filter').value;
+            const positionFilter = document.getElementById('position-filter').value;
+            
+            // Filter data based on current filters (same logic as applyFilters)
+            const filteredData = allData.filter(rowData => {
+                // Margin filter
+                if (marginFilter && rowData.margin_category !== marginFilter) {
+                    return false;
+                }
+                
+                // Match filter
+                if (matchFilter === 'matched' && rowData.match_status === 'Unmatched') {
+                    return false;
+                }
+                if (matchFilter === 'unmatched' && rowData.match_status !== 'Unmatched') {
+                    return false;
+                }
+                
+                // Position filter
+                if (positionFilter && rowData.market_position !== positionFilter) {
+                    return false;
+                }
+                
+                return true;
+            });
+            
+            // Send filtered data to backend via POST
+            fetch('/api/export/html', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    data: filteredData,
+                    discount_percent: discountPercent,
+                    nationalization_percent: nationalizationPercent,
+                    cintolo_discount: cintoloDiscount,
+                    zaloze_discount: zalozeDiscount,
+                    filters: {
+                        margin: marginFilter,
+                        match: matchFilter,
+                        position: positionFilter
+                    }
+                })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                // Create download link
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', 'comparacion_precios_filtrado_' + new Date().toISOString().split('T')[0] + '.html');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                console.error('Error exporting HTML:', error);
+                alert('Error al exportar HTML: ' + error);
+            });
         }
         
         function convertToCSV(data) {

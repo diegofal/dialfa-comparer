@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class PriceCalculator:
     def __init__(self, db_articulos, dialfa_data, citizen_data, 
                  cintolo_data=None, zaloze_data=None, use_embeddings=True, cache_manager=None,
-                 discount_percent=30, nationalization_percent=150):
+                 discount_percent=30, nationalization_percent=150, cintolo_discount=20, zaloze_discount=20):
         """
         Initialize with data from all sources.
         
@@ -29,6 +29,8 @@ class PriceCalculator:
             cache_manager: DataCache instance for caching embeddings
             discount_percent: Discount percentage to apply to ALL products (default: 30%)
             nationalization_percent: Percentage increase for FOB nationalization (default: 150%)
+            cintolo_discount: Discount percentage for Cintolo prices (default: 20%)
+            zaloze_discount: Discount percentage for Zaloze prices (default: 20%)
         """
         self.db_articulos = db_articulos
         self.dialfa_data = dialfa_data
@@ -39,8 +41,10 @@ class PriceCalculator:
         # Pricing parameters
         self.discount_percent = discount_percent
         self.nationalization_percent = nationalization_percent
+        self.cintolo_discount = cintolo_discount
+        self.zaloze_discount = zaloze_discount
         
-        logger.info(f"Pricing config: Discount {discount_percent}% universal, Nationalization +{nationalization_percent}%")
+        logger.info(f"Pricing config: Discount {discount_percent}% universal, Nationalization +{nationalization_percent}%, Cintolo discount {cintolo_discount}%, Zaloze discount {zaloze_discount}%")
         
         # Initialize embedding matcher if enabled
         self.use_embeddings = use_embeddings
@@ -628,7 +632,24 @@ class PriceCalculator:
             axis=1
         )
         
-        # 3. Determine which prices to use for margin calculations
+        # 3. Apply discounts to Cintolo and Zaloze prices
+        # Apply Cintolo discount
+        if self.cintolo_discount > 0:
+            result['cintolo_precio_con_descuento'] = result['cintolo_precio'].apply(
+                lambda x: x * (1 - self.cintolo_discount / 100) if pd.notna(x) else None
+            )
+        else:
+            result['cintolo_precio_con_descuento'] = result['cintolo_precio']
+        
+        # Apply Zaloze discount
+        if self.zaloze_discount > 0:
+            result['zaloze_precio_con_descuento'] = result['zaloze_precio'].apply(
+                lambda x: x * (1 - self.zaloze_discount / 100) if pd.notna(x) else None
+            )
+        else:
+            result['zaloze_precio_con_descuento'] = result['zaloze_precio']
+        
+        # 4. Determine which prices to use for margin calculations
         # Use discounted price if available, otherwise regular price
         result['dialfa_precio_final'] = result.apply(
             lambda row: row['precio_con_descuento'] 
@@ -640,61 +661,67 @@ class PriceCalculator:
         # Use nationalized Citizen price for margin calculations
         result['citizen_precio_final'] = result['citizen_precio_nacionalizado']
         
-        # 4. Calculate Margin % = (Dialfa_Final - Citizen_Nationalized) / Dialfa_Final * 100
+        # 5. Calculate Margin % = (Dialfa_Final - Citizen_Nationalized) / Dialfa_Final * 100
         result['margin_percent'] = (
             (result['dialfa_precio_final'] - result['citizen_precio_final']) / 
             result['dialfa_precio_final'] * 100
         ).round(2)
         
-        # 5. Calculate Markup % = (Dialfa_Final - Citizen_Nationalized) / Citizen_Nationalized * 100
+        # 6. Calculate Markup % = (Dialfa_Final - Citizen_Nationalized) / Citizen_Nationalized * 100
         result['markup_percent'] = (
             (result['dialfa_precio_final'] - result['citizen_precio_final']) / 
             result['citizen_precio_final'] * 100
         ).round(2)
         
-        # 6. Calculate difference with Cintolo (using final Dialfa price)
+        # 7. Calculate difference with Cintolo (using final Dialfa price and discounted Cintolo price)
         result['diff_vs_cintolo'] = (
-            result['dialfa_precio_final'] - result['cintolo_precio']
+            result['dialfa_precio_final'] - result['cintolo_precio_con_descuento']
         ).round(2)
         
         result['diff_percent_cintolo'] = (
-            (result['dialfa_precio_final'] - result['cintolo_precio']) / 
-            result['cintolo_precio'] * 100
+            (result['dialfa_precio_final'] - result['cintolo_precio_con_descuento']) / 
+            result['cintolo_precio_con_descuento'] * 100
         ).round(2)
         
-        # 7. Calculate difference with Zaloze (using final Dialfa price)
+        # 8. Calculate difference with Zaloze (using final Dialfa price and discounted Zaloze price)
         result['diff_vs_zaloze'] = (
-            result['dialfa_precio_final'] - result['zaloze_precio']
+            result['dialfa_precio_final'] - result['zaloze_precio_con_descuento']
         ).round(2)
         
         result['diff_percent_zaloze'] = (
-            (result['dialfa_precio_final'] - result['zaloze_precio']) / 
-            result['zaloze_precio'] * 100
+            (result['dialfa_precio_final'] - result['zaloze_precio_con_descuento']) / 
+            result['zaloze_precio_con_descuento'] * 100
         ).round(2)
         
-        # 8. Determine market position (using final Dialfa price)
+        # 9. Determine market position (using final Dialfa price and discounted competitor prices)
         result['market_position'] = result.apply(self._calculate_position, axis=1)
         
-        # 9. Add match status flag
+        # 10. Add match status flag
         result['match_status'] = result.apply(self._get_match_status, axis=1)
         
-        # 10. Add margin category for color coding
+        # 11. Add margin category for color coding
         result['margin_category'] = result['margin_percent'].apply(self._categorize_margin)
+        
+        # 12. Rename discounted prices to standard names for frontend compatibility
+        # Keep original prices available but use discounted prices as the main "precio" columns
+        result['cintolo_precio'] = result['cintolo_precio_con_descuento']
+        result['zaloze_precio'] = result['zaloze_precio_con_descuento']
         
         logger.info("Calculations completed")
         return result
     
     def _calculate_position(self, row):
-        """Calculate market position (cheapest/middle/expensive) using final prices."""
+        """Calculate market position (cheapest/middle/expensive) using final prices (with discounts applied)."""
         prices = []
         
         # Use final Dialfa price (discounted if applicable)
         if pd.notna(row.get('dialfa_precio_final')):
             prices.append(('Dialfa', row['dialfa_precio_final']))
-        if pd.notna(row.get('cintolo_precio')):
-            prices.append(('Cintolo', row['cintolo_precio']))
-        if pd.notna(row.get('zaloze_precio')):
-            prices.append(('Zaloze', row['zaloze_precio']))
+        # Use discounted Cintolo and Zaloze prices
+        if pd.notna(row.get('cintolo_precio_con_descuento')):
+            prices.append(('Cintolo', row['cintolo_precio_con_descuento']))
+        if pd.notna(row.get('zaloze_precio_con_descuento')):
+            prices.append(('Zaloze', row['zaloze_precio_con_descuento']))
         
         if len(prices) < 2:
             return 'N/A'
