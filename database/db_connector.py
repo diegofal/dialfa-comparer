@@ -150,6 +150,45 @@ class DatabaseConnector:
         df['matching_key'] = df.apply(self.create_matching_key, axis=1)
         return df
     
+    def get_sales_data(self, period_months=12):
+        """
+        Get sales data for velocity/turnover analysis.
+        
+        Args:
+            period_months: Number of months to look back for sales data (default: 12)
+        
+        Returns:
+            DataFrame with columns:
+            - IdArticulo: Product ID
+            - TotalSold: Total quantity sold in period
+            - OrderCount: Number of orders containing this product
+            - LastSaleDate: Date of most recent sale
+        """
+        if not self.connection:
+            if not self.connect():
+                raise Exception("Failed to connect to database")
+        
+        query = """
+        SELECT 
+            npi.IdArticulo,
+            SUM(npi.Cantidad) as TotalSold,
+            COUNT(DISTINCT npi.IdNotaPedido) as OrderCount,
+            MAX(np.FechaEmision) as LastSaleDate
+        FROM NotaPedido_Items npi
+        INNER JOIN NotaPedidos np ON npi.IdNotaPedido = np.IdNotaPedido
+        WHERE np.FechaEmision >= DATEADD(MONTH, -?, GETDATE())
+        GROUP BY npi.IdArticulo
+        """
+        
+        try:
+            df = pd.read_sql(query, self.connection, params=[period_months])
+            logger.info(f"Retrieved sales data for {len(df)} products ({period_months} months)")
+            return df
+        except Exception as e:
+            logger.error(f"Error querying sales data: {e}")
+            # Return empty DataFrame with expected columns
+            return pd.DataFrame(columns=['IdArticulo', 'TotalSold', 'OrderCount', 'LastSaleDate'])
+    
     def close(self):
         """Close database connection."""
         if self.connection:

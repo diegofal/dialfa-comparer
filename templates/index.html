@@ -277,6 +277,51 @@
             color: #721c24;
         }
         
+        .badge-high-velocity {
+            background-color: #d4edda;
+            color: #155724;
+            font-weight: 700;
+        }
+        
+        .badge-medium-velocity {
+            background-color: #fff3cd;
+            color: #856404;
+            font-weight: 700;
+        }
+        
+        .badge-low-velocity {
+            background-color: #f8d7da;
+            color: #721c24;
+            font-weight: 700;
+        }
+        
+        .badge-no-movement {
+            background-color: #e2e3e5;
+            color: #383d41;
+            font-weight: 700;
+        }
+        
+        .badge-high-demand {
+            background-color: #FFE5E5;
+            color: #C82333;
+            font-weight: 700;
+            border: 2px solid #FF6B6B;
+        }
+        
+        .badge-medium-demand {
+            background-color: #E0F7FA;
+            color: #00695C;
+            font-weight: 700;
+            border: 2px solid #4ECDC4;
+        }
+        
+        .badge-low-demand {
+            background-color: #F3E5F5;
+            color: #6A1B9A;
+            font-weight: 700;
+            border: 2px solid #C7CEEA;
+        }
+        
         .position-cheapest {
             color: #27ae60;
             font-weight: bold;
@@ -338,6 +383,41 @@
             </div>
         </div>
         
+        <!-- Demand Cards (ABC Analysis) -->
+        <div class="summary-cards">
+            <div class="card" style="background: linear-gradient(135deg, #FF6B6B 0%, #FFE66D 100%);">
+                <div class="card-title">🔥 Alta Demanda (A)</div>
+                <div class="card-value" id="high-demand">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);">
+                <div class="card-title">📊 Media Demanda (B)</div>
+                <div class="card-value" id="medium-demand">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #C7CEEA 0%, #B2A4D4 100%); color: #333;">
+                <div class="card-title">📉 Baja Demanda (C)</div>
+                <div class="card-value" id="low-demand">-</div>
+            </div>
+        </div>
+        
+        <!-- Velocity Cards -->
+        <div class="summary-cards">
+            <div class="card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                <div class="card-title">🔥 Alta Rotación</div>
+                <div class="card-value" id="high-velocity">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                <div class="card-title">🔄 Media Rotación</div>
+                <div class="card-value" id="medium-velocity">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
+                <div class="card-title">🐌 Baja Rotación</div>
+                <div class="card-value" id="low-velocity">-</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333;">
+                <div class="card-title">⏸️ Sin Movimiento</div>
+                <div class="card-value" id="no-movement">-</div>
+            </div>
+        </div>        
         <div class="config-panel">
             <h3>⚙️ Configuración de Precios</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px;">
@@ -373,6 +453,17 @@
                         Descuento sobre lista Zaloze. Ejemplo: 20% → precio × 0.80
                     </small>
                 </div>
+                <div class="filter-group">
+                    <label>Período Rotación (meses)</label>
+                    <select id="velocity-period" title="Período de análisis para rotación de inventario">
+                        <option value="6">Últimos 6 meses</option>
+                        <option value="12" selected>Últimos 12 meses</option>
+                        <option value="24">Últimos 24 meses</option>
+                    </select>
+                    <small style="color: #6c757d; font-size: 11px; margin-top: 5px; display: block;">
+                        Período para calcular velocidad de venta
+                    </small>
+                </div>
                 <div style="display: flex; align-items: flex-end;">
                     <button onclick="applyPricingConfig()" style="width: 100%; background-color: #e67e22; font-weight: 600; height: 45px;">
                         💰 Aplicar Configuración
@@ -397,6 +488,26 @@
                         <option value="high">Alto (>40%)</option>
                         <option value="medium">Medio (20-40%)</option>
                         <option value="low">Bajo (<20%)</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label>Demanda (ABC)</label>
+                    <select id="demand-filter">
+                        <option value="">Todos</option>
+                        <option value="High Demand">🔥 Alta (A) - Papa Caliente</option>
+                        <option value="Medium Demand">📊 Media (B)</option>
+                        <option value="Low Demand">📉 Baja (C)</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Rotación de Inventario</label>
+                    <select id="velocity-filter">
+                        <option value="">Todos</option>
+                        <option value="High Velocity">Alta Rotación</option>
+                        <option value="Medium Velocity">Media Rotación</option>
+                        <option value="Low Velocity">Baja Rotación</option>
+                        <option value="No Movement">Sin Movimiento</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -436,6 +547,10 @@
                     <th>Descripción</th>
                     <th>Precio Dialfa</th>
                     <th>Precio c/ Descuento</th>
+                    <th>Demanda</th>
+                    <th>Rotación</th>
+                    <th>Ventas/Mes</th>
+                    <th>Meses Stock</th>
                     <th>Producto Citizen</th>
                     <th>Cantidad Total</th>
                     <th>FOB Min</th>
@@ -473,8 +588,9 @@
             const nationalizationPercent = document.getElementById('nationalization-percent').value;
             const cintoloDiscount = document.getElementById('cintolo-discount').value;
             const zalozeDiscount = document.getElementById('zaloze-discount').value;
+            const velocityPeriod = document.getElementById('velocity-period').value;
             
-            const url = `/api/data?discount_percent=${discountPercent}&nationalization_percent=${nationalizationPercent}&cintolo_discount=${cintoloDiscount}&zaloze_discount=${zalozeDiscount}`;
+            const url = `/api/data?discount_percent=${discountPercent}&nationalization_percent=${nationalizationPercent}&cintolo_discount=${cintoloDiscount}&zaloze_discount=${zalozeDiscount}&velocity_period=${velocityPeriod}`;
             
             fetch(url)
                 .then(response => response.json())
@@ -529,6 +645,17 @@
             document.getElementById('unmatched-zaloze').textContent = summary.unmatched_zaloze || 0;
             document.getElementById('avg-margin').innerHTML = 
                 (summary.average_margin || 0).toFixed(1) + '<small>%</small>';
+            
+            // Update demand cards
+            document.getElementById('high-demand').textContent = summary.high_demand_products || 0;
+            document.getElementById('medium-demand').textContent = summary.medium_demand_products || 0;
+            document.getElementById('low-demand').textContent = summary.low_demand_products || 0;
+            
+            // Update velocity cards
+            document.getElementById('high-velocity').textContent = summary.high_velocity_products || 0;
+            document.getElementById('medium-velocity').textContent = summary.medium_velocity_products || 0;
+            document.getElementById('low-velocity').textContent = summary.low_velocity_products || 0;
+            document.getElementById('no-movement').textContent = summary.no_movement_products || 0;
         }
         
         function initializeDataTable(data) {
@@ -556,11 +683,76 @@
                 const rentabilidadPercent = row.markup_percent;  // Markup % = Rentabilidad
                 const margenBrutoPercent = row.margin_percent;   // Margin % = Margen Bruto
                 
+                // Demand badge styling (ABC Analysis)
+                let demandBadge = '';
+                let demandClass = '';
+                if (row.demand_category) {
+                    switch(row.demand_category) {
+                        case 'High Demand':
+                            demandClass = 'badge-high-demand';
+                            demandBadge = '🔥 Alta (A)';
+                            break;
+                        case 'Medium Demand':
+                            demandClass = 'badge-medium-demand';
+                            demandBadge = '📊 Media (B)';
+                            break;
+                        case 'Low Demand':
+                            demandClass = 'badge-low-demand';
+                            demandBadge = '📉 Baja (C)';
+                            break;
+                        default:
+                            demandClass = 'badge';
+                            demandBadge = row.demand_category;
+                    }
+                }
+                
+                // Velocity badge styling
+                let velocityBadge = '';
+                let velocityClass = '';
+                if (row.velocity_category) {
+                    switch(row.velocity_category) {
+                        case 'High Velocity':
+                            velocityClass = 'badge-high-velocity';
+                            velocityBadge = '🔥 Alta';
+                            break;
+                        case 'Medium Velocity':
+                            velocityClass = 'badge-medium-velocity';
+                            velocityBadge = '🔄 Media';
+                            break;
+                        case 'Low Velocity':
+                            velocityClass = 'badge-low-velocity';
+                            velocityBadge = '🐌 Baja';
+                            break;
+                        case 'No Movement':
+                            velocityClass = 'badge-no-movement';
+                            velocityBadge = '⏸️ Sin Mov.';
+                            break;
+                        default:
+                            velocityClass = 'badge';
+                            velocityBadge = row.velocity_category;
+                    }
+                }
+                
+                // Format monthly sales - show 0.00 if it's actually 0, only show "-" if null/undefined
+                const monthlySales = row.monthly_sales_avg !== null && row.monthly_sales_avg !== undefined 
+                    ? formatNumber(row.monthly_sales_avg) 
+                    : '-';
+                
+                // Format months of stock - show ∞ for 999, otherwise show the value
+                let monthsStock = '-';
+                if (row.months_of_stock !== null && row.months_of_stock !== undefined) {
+                    monthsStock = row.months_of_stock >= 999 ? '∞' : formatNumber(row.months_of_stock);
+                }
+                
                 tr.innerHTML = `
                     <td>${row.codigo || '-'}</td>
                     <td>${row.descripcion || '-'}</td>
                     <td class="price">$${formatNumber(row.dialfa_precio)}</td>
                     <td class="price">${precioConDescuento ? '$' + formatNumber(precioConDescuento) : '-'}</td>
+                    <td><span class="badge ${demandClass}">${demandBadge}</span></td>
+                    <td><span class="badge ${velocityClass}">${velocityBadge}</span></td>
+                    <td class="price">${monthlySales}</td>
+                    <td class="price">${monthsStock}</td>
                     <td>${row.citizen_producto || '-'}</td>
                     <td class="price" style="text-align: center;">${row.cantidad ? Math.round(row.cantidad) + ' uds' : '-'}</td>
                     <td class="price">$${formatNumber(row.precio_fob_min)}</td>
@@ -614,6 +806,8 @@
             const marginFilter = document.getElementById('margin-filter').value;
             const matchFilter = document.getElementById('match-filter').value;
             const positionFilter = document.getElementById('position-filter').value;
+            const demandFilter = document.getElementById('demand-filter').value;
+            const velocityFilter = document.getElementById('velocity-filter').value;
             
             $.fn.dataTable.ext.search = [];
             
@@ -635,6 +829,16 @@
                 
                 // Position filter
                 if (positionFilter && rowData.market_position !== positionFilter) {
+                    return false;
+                }
+                
+                // Demand filter (ABC Analysis)
+                if (demandFilter && rowData.demand_category !== demandFilter) {
+                    return false;
+                }
+                
+                // Velocity filter
+                if (velocityFilter && rowData.velocity_category !== velocityFilter) {
                     return false;
                 }
                 
@@ -757,6 +961,8 @@
         document.getElementById('margin-filter').addEventListener('change', applyFilters);
         document.getElementById('match-filter').addEventListener('change', applyFilters);
         document.getElementById('position-filter').addEventListener('change', applyFilters);
+        document.getElementById('demand-filter').addEventListener('change', applyFilters);
+        document.getElementById('velocity-filter').addEventListener('change', applyFilters);
         
         // Load data on page load
         loadData();

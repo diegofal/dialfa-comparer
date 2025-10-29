@@ -21,6 +21,7 @@ from data_extractors.cintolo_extractor import CintoloExtractor
 from data_extractors.zaloze_extractor import ZalozeExtractor
 from price_calculator import PriceCalculator
 from data_cache import DataCache
+from inventory_velocity import InventoryVelocityAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ force_refresh = os.environ.get('FORCE_REFRESH', 'false').lower() == 'true'
 
 
 def load_and_process_data(use_cache=True, discount_percent=30, nationalization_percent=150, 
-                          cintolo_discount=20, zaloze_discount=20):
+                          cintolo_discount=20, zaloze_discount=20, velocity_period_months=12):
     """
     Load data from all sources and process comparisons.
     
@@ -49,6 +50,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         nationalization_percent: Nationalization percentage for FOB prices
         cintolo_discount: Discount percentage for Cintolo prices (default: 20%)
         zaloze_discount: Discount percentage for Zaloze prices (default: 20%)
+        velocity_period_months: Number of months for velocity analysis (default: 12)
     """
     global cached_results, cached_matched_data, extraction_errors
     
@@ -58,12 +60,23 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         # Check if we can reuse matched data (if only pricing params changed)
         if cached_matched_data is not None:
             logger.info("✓ Reusing cached matched data, recalculating margins only...")
+            
+            # Recalculate velocity data if needed
+            db_connector = DatabaseConnector()
+            velocity_analyzer = InventoryVelocityAnalyzer(db_connector)
+            velocity_data = velocity_analyzer.calculate_velocity(
+                cached_matched_data['db_articulos'], 
+                period_months=velocity_period_months
+            )
+            db_connector.close()
+            
             calculator = PriceCalculator(
                 db_articulos=cached_matched_data['db_articulos'],
                 dialfa_data=cached_matched_data['db_articulos'],
                 citizen_data=cached_matched_data['citizen_data'],
                 cintolo_data=cached_matched_data['cintolo_data'],
                 zaloze_data=cached_matched_data['zaloze_data'],
+                velocity_data=velocity_data,
                 use_embeddings=False,  # Skip embedding initialization
                 discount_percent=discount_percent,
                 nationalization_percent=nationalization_percent,
@@ -78,6 +91,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
             column_order = [
                 'codigo', 'descripcion', 
                 'dialfa_precio', 'precio_con_descuento',
+                'demand_category', 'velocity_category', 'monthly_sales_avg', 'months_of_stock', 'annual_turnover_percent',
                 'citizen_producto', 
                 'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
                 'precio_fob_min_nacionalizado', 'precio_fob_max_nacionalizado', 'citizen_precio_nacionalizado',
@@ -112,11 +126,12 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         if use_cache:
             data_cache.print_status()
         
-        # [1/4] Load database products
-        logger.info("\n[1/4] Loading products from database (PRIMARY SOURCE)...")
+        # [1/5] Load database products
+        logger.info("\n[1/5] Loading products from database (PRIMARY SOURCE)...")
         if use_cache and data_cache.cache_exists('db_articulos'):
             db_articulos = data_cache.load('db_articulos')
             logger.info(f"✓ Loaded from cache: {len(db_articulos)} products")
+            db_connector = DatabaseConnector()  # Still need connector for velocity
         else:
             try:
                 db_connector = DatabaseConnector()
@@ -129,8 +144,22 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 extraction_errors.append(error_msg)
                 return pd.DataFrame()
         
-        # [2/4] Extract Citizen supplier data
-        logger.info("\n[2/4] Loading Citizen supplier data...")
+        # [1.5/5] Calculate inventory velocity
+        logger.info(f"\n[1.5/5] Calculating inventory velocity ({velocity_period_months} months)...")
+        try:
+            velocity_analyzer = InventoryVelocityAnalyzer(db_connector)
+            velocity_data = velocity_analyzer.calculate_velocity(db_articulos, period_months=velocity_period_months)
+            logger.info(f"✓ Velocity data calculated for {len(velocity_data)} products")
+        except Exception as e:
+            error_msg = f"Warning: Velocity calculation failed: {str(e)}"
+            logger.warning(error_msg)
+            extraction_errors.append(error_msg)
+            velocity_data = None
+        finally:
+            db_connector.close()
+        
+        # [2/5] Extract Citizen supplier data
+        logger.info("\n[2/5] Loading Citizen supplier data...")
         if use_cache and data_cache.cache_exists('citizen'):
             citizen_data = data_cache.load('citizen')
             logger.info(f"✓ Loaded from cache: {len(citizen_data)} products")
@@ -146,8 +175,8 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 extraction_errors.append(error_msg)
                 citizen_data = pd.DataFrame()
         
-        # [3/4] Extract Cintolo competitor data
-        logger.info("\n[3/4] Loading Cintolo competitor data...")
+        # [3/5] Extract Cintolo competitor data
+        logger.info("\n[3/5] Loading Cintolo competitor data...")
         if use_cache and data_cache.cache_exists('cintolo'):
             cintolo_data = data_cache.load('cintolo')
             logger.info(f"✓ Loaded from cache: {len(cintolo_data)} products")
@@ -163,8 +192,8 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 extraction_errors.append(error_msg)
                 cintolo_data = pd.DataFrame()
         
-        # [4/4] Extract Zaloze competitor data (OCR - very slow!)
-        logger.info("\n[4/4] Loading Zaloze competitor data...")
+        # [4/5] Extract Zaloze competitor data (OCR - very slow!)
+        logger.info("\n[4/5] Loading Zaloze competitor data...")
         if use_cache and data_cache.cache_exists('zaloze'):
             zaloze_data = data_cache.load('zaloze')
             logger.info(f"✓ Loaded from cache: {len(zaloze_data)} products (OCR skipped!)")
@@ -181,14 +210,15 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 extraction_errors.append(error_msg)
                 zaloze_data = pd.DataFrame()
         
-        # Calculate price comparisons
-        logger.info("\nCalculating price comparisons...")
+        # [5/5] Calculate price comparisons
+        logger.info("\n[5/5] Calculating price comparisons...")
         calculator = PriceCalculator(
             db_articulos=db_articulos,  # PRIMARY SOURCE
             dialfa_data=db_articulos,   # Use same data for now
             citizen_data=citizen_data,
             cintolo_data=cintolo_data,
             zaloze_data=zaloze_data,
+            velocity_data=velocity_data,
             use_embeddings=True,  # Enable AI-powered matching
             cache_manager=data_cache,  # Pass cache manager for embeddings
             discount_percent=discount_percent,
@@ -217,6 +247,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         column_order = [
             'codigo', 'descripcion', 
             'dialfa_precio', 'precio_con_descuento',
+            'demand_category', 'velocity_category', 'monthly_sales_avg', 'months_of_stock', 'annual_turnover_percent',
             'citizen_producto', 
             'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
             'precio_fob_min_nacionalizado', 'precio_fob_max_nacionalizado', 'citizen_precio_nacionalizado',
@@ -272,13 +303,15 @@ def get_data():
         nationalization_percent = float(request.args.get('nationalization_percent', 150))
         cintolo_discount = float(request.args.get('cintolo_discount', 20))
         zaloze_discount = float(request.args.get('zaloze_discount', 20))
+        velocity_period_months = int(request.args.get('velocity_period', 12))
         
         # Check if parameters changed - if so, invalidate cache
         current_params = {
             'discount_percent': discount_percent,
             'nationalization_percent': nationalization_percent,
             'cintolo_discount': cintolo_discount,
-            'zaloze_discount': zaloze_discount
+            'zaloze_discount': zaloze_discount,
+            'velocity_period_months': velocity_period_months
         }
         
         params_changed = last_params != current_params
@@ -297,7 +330,8 @@ def get_data():
                 discount_percent=discount_percent,
                 nationalization_percent=nationalization_percent,
                 cintolo_discount=cintolo_discount,
-                zaloze_discount=zaloze_discount
+                zaloze_discount=zaloze_discount,
+                velocity_period_months=velocity_period_months
             )
         
         if cached_results is None or cached_results.empty:
@@ -329,7 +363,14 @@ def get_data():
             'average_markup': float(cached_results['markup_percent'].mean()) if 'markup_percent' in cached_results else 0.0,
             'low_margin_products': int((cached_results['margin_category'] == 'low').sum()) if 'margin_category' in cached_results else 0,
             'medium_margin_products': int((cached_results['margin_category'] == 'medium').sum()) if 'margin_category' in cached_results else 0,
-            'high_margin_products': int((cached_results['margin_category'] == 'high').sum()) if 'margin_category' in cached_results else 0
+            'high_margin_products': int((cached_results['margin_category'] == 'high').sum()) if 'margin_category' in cached_results else 0,
+            'high_velocity_products': int((cached_results['velocity_category'] == 'High Velocity').sum()) if 'velocity_category' in cached_results else 0,
+            'medium_velocity_products': int((cached_results['velocity_category'] == 'Medium Velocity').sum()) if 'velocity_category' in cached_results else 0,
+            'low_velocity_products': int((cached_results['velocity_category'] == 'Low Velocity').sum()) if 'velocity_category' in cached_results else 0,
+            'no_movement_products': int((cached_results['velocity_category'] == 'No Movement').sum()) if 'velocity_category' in cached_results else 0,
+            'high_demand_products': int((cached_results['demand_category'] == 'High Demand').sum()) if 'demand_category' in cached_results else 0,
+            'medium_demand_products': int((cached_results['demand_category'] == 'Medium Demand').sum()) if 'demand_category' in cached_results else 0,
+            'low_demand_products': int((cached_results['demand_category'] == 'Low Demand').sum()) if 'demand_category' in cached_results else 0
         }
         
         return jsonify({
@@ -493,12 +534,47 @@ def generate_export_html(data, summary, discount_percent, nationalization_percen
         match_status = row.get('match_status', 'Unknown')
         badge_class = 'badge-danger' if match_status == 'Unmatched' else 'badge-success'
         
+        # Demand badge formatting
+        demand = row.get('demand_category', 'No Data')
+        demand_badge = demand
+        if demand == 'High Demand':
+            demand_badge = '🔥 Alta (A)'
+        elif demand == 'Medium Demand':
+            demand_badge = '📊 Media (B)'
+        elif demand == 'Low Demand':
+            demand_badge = '📉 Baja (C)'
+        
+        # Velocity badge formatting
+        velocity = row.get('velocity_category', 'No Data')
+        velocity_badge = velocity
+        if velocity == 'High Velocity':
+            velocity_badge = '🔥 Alta'
+        elif velocity == 'Medium Velocity':
+            velocity_badge = '🔄 Media'
+        elif velocity == 'Low Velocity':
+            velocity_badge = '🐌 Baja'
+        elif velocity == 'No Movement':
+            velocity_badge = '⏸️ Sin Mov.'
+        
+        monthly_sales = fmt(row.get('monthly_sales_avg')) if row.get('monthly_sales_avg') is not None else '-'
+        months_stock = row.get('months_of_stock')
+        if months_stock is not None and months_stock < 999:
+            months_stock_str = fmt(months_stock)
+        elif months_stock == 999:
+            months_stock_str = '∞'
+        else:
+            months_stock_str = '-'
+        
         rows_html.append(f'''
             <tr class="{margin_class}">
                 <td>{row.get('codigo', '-')}</td>
                 <td>{row.get('descripcion', '-')}</td>
                 <td class="price">${fmt(row.get('dialfa_precio'))}</td>
                 <td class="price">{'$' + fmt(row.get('precio_con_descuento')) if row.get('precio_con_descuento') else '-'}</td>
+                <td>{demand_badge}</td>
+                <td>{velocity_badge}</td>
+                <td class="price">{monthly_sales}</td>
+                <td class="price">{months_stock_str}</td>
                 <td>{row.get('citizen_producto', '-')}</td>
                 <td class="price" style="text-align: center;">{str(round(row.get('cantidad'))) + ' uds' if row.get('cantidad') else '-'}</td>
                 <td class="price">${fmt(row.get('precio_fob_min'))}</td>
@@ -751,6 +827,40 @@ def generate_export_html(data, summary, discount_percent, nationalization_percen
             </div>
         </div>
         
+        <div class="summary-cards">
+            <div class="card" style="background: linear-gradient(135deg, #FF6B6B 0%, #FFE66D 100%);">
+                <div class="card-title">🔥 Alta Demanda (A)</div>
+                <div class="card-value">{summary.get('high_demand_products', 0)}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);">
+                <div class="card-title">📊 Media Demanda (B)</div>
+                <div class="card-value">{summary.get('medium_demand_products', 0)}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #C7CEEA 0%, #B2A4D4 100%); color: #333;">
+                <div class="card-title">📉 Baja Demanda (C)</div>
+                <div class="card-value">{summary.get('low_demand_products', 0)}</div>
+            </div>
+        </div>
+        
+        <div class="summary-cards">
+            <div class="card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                <div class="card-title">🔥 Alta Rotación</div>
+                <div class="card-value">{summary.get('high_velocity_products', 0)}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                <div class="card-title">🔄 Media Rotación</div>
+                <div class="card-value">{summary.get('medium_velocity_products', 0)}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
+                <div class="card-title">🐌 Baja Rotación</div>
+                <div class="card-value">{summary.get('low_velocity_products', 0)}</div>
+            </div>
+            <div class="card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333;">
+                <div class="card-title">⏸️ Sin Movimiento</div>
+                <div class="card-value">{summary.get('no_movement_products', 0)}</div>
+            </div>
+        </div>
+        
         <h2 style="color: #2c3e50; margin-top: 30px; margin-bottom: 15px;">Detalle de Productos</h2>
         
         <table>
@@ -760,6 +870,10 @@ def generate_export_html(data, summary, discount_percent, nationalization_percen
                     <th>Descripción</th>
                     <th>Precio Dialfa</th>
                     <th>Precio c/ Descuento</th>
+                    <th>Demanda</th>
+                    <th>Rotación</th>
+                    <th>Ventas/Mes</th>
+                    <th>Meses Stock</th>
                     <th>Producto Citizen</th>
                     <th>Cantidad Total</th>
                     <th>FOB Min</th>

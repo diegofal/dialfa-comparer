@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class PriceCalculator:
     def __init__(self, db_articulos, dialfa_data, citizen_data, 
-                 cintolo_data=None, zaloze_data=None, use_embeddings=True, cache_manager=None,
+                 cintolo_data=None, zaloze_data=None, velocity_data=None, use_embeddings=True, cache_manager=None,
                  discount_percent=30, nationalization_percent=150, cintolo_discount=20, zaloze_discount=20):
         """
         Initialize with data from all sources.
@@ -25,6 +25,7 @@ class PriceCalculator:
             citizen_data: DataFrame with Citizen supplier prices
             cintolo_data: DataFrame with Cintolo competitor prices (optional)
             zaloze_data: DataFrame with Zaloze competitor prices (optional)
+            velocity_data: DataFrame with inventory velocity metrics (optional)
             use_embeddings: Use AI embeddings for matching (default: True)
             cache_manager: DataCache instance for caching embeddings
             discount_percent: Discount percentage to apply to ALL products (default: 30%)
@@ -37,6 +38,7 @@ class PriceCalculator:
         self.citizen_data = citizen_data
         self.cintolo_data = cintolo_data if cintolo_data is not None else pd.DataFrame()
         self.zaloze_data = zaloze_data if zaloze_data is not None else pd.DataFrame()
+        self.velocity_data = velocity_data if velocity_data is not None else pd.DataFrame()
         
         # Pricing parameters
         self.discount_percent = discount_percent
@@ -588,16 +590,35 @@ class PriceCalculator:
         """
         Calculate margin %, markup %, and competitor comparisons.
         Includes discount pricing and nationalized FOB pricing.
+        Merges velocity data if available.
         
         Args:
             df: DataFrame with matched products
             
         Returns:
-            DataFrame with calculated margins and comparisons
+            DataFrame with calculated margins, comparisons, and velocity metrics
         """
         logger.info("Calculating margins and comparisons")
         
         result = df.copy()
+        
+        # 0. Merge velocity data if available
+        if not self.velocity_data.empty:
+            logger.info(f"Merging velocity data for {len(self.velocity_data)} products")
+            result = result.merge(
+                self.velocity_data,
+                on='idArticulo',
+                how='left'
+            )
+            logger.info("✓ Velocity data merged")
+        else:
+            # Add empty velocity columns if no data available
+            result['velocity_category'] = 'No Data'
+            result['demand_category'] = 'No Data'
+            result['monthly_sales_avg'] = None
+            result['months_of_stock'] = None
+            result['annual_turnover_percent'] = None
+            result['last_sale_date'] = None
         
         # 1. Calculate discounted Dialfa price (apply to ALL products if discount > 0)
         if self.discount_percent > 0:
