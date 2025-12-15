@@ -90,7 +90,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
             # Reorder columns for better readability
             column_order = [
                 'codigo', 'descripcion', 
-                'dialfa_precio', 'precio_con_descuento',
+                'dialfa_precio', 'precio_con_descuento', 'cantidad',
                 'demand_category', 'velocity_category', 'monthly_sales_avg', 'months_of_stock', 'annual_turnover_percent',
                 'citizen_producto', 
                 'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
@@ -246,7 +246,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
         # Reorder columns for better readability
         column_order = [
             'codigo', 'descripcion', 
-            'dialfa_precio', 'precio_con_descuento',
+            'dialfa_precio', 'precio_con_descuento', 'cantidad',
             'demand_category', 'velocity_category', 'monthly_sales_avg', 'months_of_stock', 'annual_turnover_percent',
             'citizen_producto', 
             'precio_fob_min', 'precio_fob_max', 'precio_fob_ponderado',
@@ -571,12 +571,12 @@ def generate_export_html(data, summary, discount_percent, nationalization_percen
                 <td>{row.get('descripcion', '-')}</td>
                 <td class="price">${fmt(row.get('dialfa_precio'))}</td>
                 <td class="price">{'$' + fmt(row.get('precio_con_descuento')) if row.get('precio_con_descuento') else '-'}</td>
+                <td class="price" style="text-align: center;">{str(round(row.get('cantidad'))) if row.get('cantidad') else '-'}</td>
                 <td>{demand_badge}</td>
                 <td>{velocity_badge}</td>
                 <td class="price">{monthly_sales}</td>
                 <td class="price">{months_stock_str}</td>
                 <td>{row.get('citizen_producto', '-')}</td>
-                <td class="price" style="text-align: center;">{str(round(row.get('cantidad'))) + ' uds' if row.get('cantidad') else '-'}</td>
                 <td class="price">${fmt(row.get('precio_fob_min'))}</td>
                 <td class="price">${fmt(row.get('precio_fob_max'))}</td>
                 <td class="price">${fmt(row.get('precio_fob_ponderado'))}</td>
@@ -870,12 +870,12 @@ def generate_export_html(data, summary, discount_percent, nationalization_percen
                     <th>Descripción</th>
                     <th>Precio Dialfa</th>
                     <th>Precio c/ Descuento</th>
+                    <th>Stock Dialfa</th>
                     <th>Demanda</th>
                     <th>Rotación</th>
                     <th>Ventas/Mes</th>
                     <th>Meses Stock</th>
                     <th>Producto Citizen</th>
-                    <th>Cantidad Total</th>
                     <th>FOB Min</th>
                     <th>FOB Max</th>
                     <th>FOB Ponderado</th>

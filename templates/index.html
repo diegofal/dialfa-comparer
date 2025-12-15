@@ -345,79 +345,6 @@
         
         <div id="errors-container"></div>
         
-        <div class="summary-cards" id="summary-cards">
-            <div class="card">
-                <div class="card-title">Total Productos Dialfa</div>
-                <div class="card-value" id="total-products">-</div>
-            </div>
-            <div class="card green">
-                <div class="card-title">✓ Match Citizen</div>
-                <div class="card-value" id="matched-products">-</div>
-            </div>
-            <div class="card orange">
-                <div class="card-title">✗ Sin Match Citizen</div>
-                <div class="card-value" id="unmatched-citizen">-</div>
-            </div>
-            <div class="card blue">
-                <div class="card-title">Margen Promedio</div>
-                <div class="card-value" id="avg-margin">-<small>%</small></div>
-            </div>
-        </div>
-        
-        <div class="summary-cards" style="margin-bottom: 30px;">
-            <div class="card" style="background: linear-gradient(135deg, #a8e063 0%, #56ab2f 100%);">
-                <div class="card-title">✓ Match Cintolo</div>
-                <div class="card-value" id="matched-cintolo">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #fc4a1a 0%, #f7b733 100%);">
-                <div class="card-title">✗ Sin Match Cintolo</div>
-                <div class="card-value" id="unmatched-cintolo">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%);">
-                <div class="card-title">✓ Match Zaloze</div>
-                <div class="card-value" id="matched-zaloze">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #fddb92 0%, #d1fdff 100%); color: #333;">
-                <div class="card-title">✗ Sin Match Zaloze</div>
-                <div class="card-value" id="unmatched-zaloze">-</div>
-            </div>
-        </div>
-        
-        <!-- Demand Cards (ABC Analysis) -->
-        <div class="summary-cards">
-            <div class="card" style="background: linear-gradient(135deg, #FF6B6B 0%, #FFE66D 100%);">
-                <div class="card-title">🔥 Alta Demanda (A)</div>
-                <div class="card-value" id="high-demand">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #4ECDC4 0%, #44A08D 100%);">
-                <div class="card-title">📊 Media Demanda (B)</div>
-                <div class="card-value" id="medium-demand">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #C7CEEA 0%, #B2A4D4 100%); color: #333;">
-                <div class="card-title">📉 Baja Demanda (C)</div>
-                <div class="card-value" id="low-demand">-</div>
-            </div>
-        </div>
-        
-        <!-- Velocity Cards -->
-        <div class="summary-cards">
-            <div class="card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
-                <div class="card-title">🔥 Alta Rotación</div>
-                <div class="card-value" id="high-velocity">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
-                <div class="card-title">🔄 Media Rotación</div>
-                <div class="card-value" id="medium-velocity">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%);">
-                <div class="card-title">🐌 Baja Rotación</div>
-                <div class="card-value" id="low-velocity">-</div>
-            </div>
-            <div class="card" style="background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333;">
-                <div class="card-title">⏸️ Sin Movimiento</div>
-                <div class="card-value" id="no-movement">-</div>
-            </div>
-        </div>        
         <div class="config-panel">
             <h3>⚙️ Configuración de Precios</h3>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px;">
@@ -547,12 +474,12 @@
                     <th>Descripción</th>
                     <th>Precio Dialfa</th>
                     <th>Precio c/ Descuento</th>
+                    <th>Stock Dialfa</th>
                     <th>Demanda</th>
                     <th>Rotación</th>
                     <th>Ventas/Mes</th>
                     <th>Meses Stock</th>
                     <th>Producto Citizen</th>
-                    <th>Cantidad Total</th>
                     <th>FOB Min</th>
                     <th>FOB Max</th>
                     <th>FOB Ponderado</th>
@@ -636,26 +563,8 @@
         }
         
         function updateSummary(summary) {
-            document.getElementById('total-products').textContent = summary.total_products || 0;
-            document.getElementById('matched-products').textContent = summary.matched_products || 0;
-            document.getElementById('unmatched-citizen').textContent = summary.unmatched_citizen || 0;
-            document.getElementById('matched-cintolo').textContent = summary.matched_cintolo || 0;
-            document.getElementById('unmatched-cintolo').textContent = summary.unmatched_cintolo || 0;
-            document.getElementById('matched-zaloze').textContent = summary.matched_zaloze || 0;
-            document.getElementById('unmatched-zaloze').textContent = summary.unmatched_zaloze || 0;
-            document.getElementById('avg-margin').innerHTML = 
-                (summary.average_margin || 0).toFixed(1) + '<small>%</small>';
-            
-            // Update demand cards
-            document.getElementById('high-demand').textContent = summary.high_demand_products || 0;
-            document.getElementById('medium-demand').textContent = summary.medium_demand_products || 0;
-            document.getElementById('low-demand').textContent = summary.low_demand_products || 0;
-            
-            // Update velocity cards
-            document.getElementById('high-velocity').textContent = summary.high_velocity_products || 0;
-            document.getElementById('medium-velocity').textContent = summary.medium_velocity_products || 0;
-            document.getElementById('low-velocity').textContent = summary.low_velocity_products || 0;
-            document.getElementById('no-movement').textContent = summary.no_movement_products || 0;
+            // Summary cards have been removed - no UI updates needed
+            // Data is still available in the 'summary' object if needed in the future
         }
         
         function initializeDataTable(data) {
@@ -749,12 +658,12 @@
                     <td>${row.descripcion || '-'}</td>
                     <td class="price">$${formatNumber(row.dialfa_precio)}</td>
                     <td class="price">${precioConDescuento ? '$' + formatNumber(precioConDescuento) : '-'}</td>
+                    <td class="price" style="text-align: center;">${row.cantidad ? Math.round(row.cantidad) : '-'}</td>
                     <td><span class="badge ${demandClass}">${demandBadge}</span></td>
                     <td><span class="badge ${velocityClass}">${velocityBadge}</span></td>
                     <td class="price">${monthlySales}</td>
                     <td class="price">${monthsStock}</td>
                     <td>${row.citizen_producto || '-'}</td>
-                    <td class="price" style="text-align: center;">${row.cantidad ? Math.round(row.cantidad) + ' uds' : '-'}</td>
                     <td class="price">$${formatNumber(row.precio_fob_min)}</td>
                     <td class="price">$${formatNumber(row.precio_fob_max)}</td>
                     <td class="price">$${formatNumber(row.precio_fob_ponderado)}</td>

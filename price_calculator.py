@@ -6,7 +6,7 @@ No AI/external API dependencies - all processing is local.
 import pandas as pd
 import logging
 from rapidfuzz import fuzz
-from traditional_matcher import TraditionalMatcher
+# from traditional_matcher import TraditionalMatcher  # Not needed - matching logic is in this class
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,15 +54,16 @@ class PriceCalculator:
         logger.info(f"Pricing config: Discount {discount_percent}% universal, Nationalization +{nationalization_percent}%, Cintolo discount {cintolo_discount}%, Zaloze discount {zaloze_discount}%")
         
         # Initialize traditional matcher (TF-IDF + Fuzzy - no API required)
-        self.use_advanced_matching = use_advanced_matching
+        # Disabled - using basic fuzzy matching instead
+        self.use_advanced_matching = False  # Disabled advanced matching
         self.traditional_matcher = None
-        if use_advanced_matching:
-            try:
-                self.traditional_matcher = TraditionalMatcher(cache_manager=cache_manager)
-                logger.info("✓ Advanced matching enabled (TF-IDF + Fuzzy - no external API)")
-            except Exception as e:
-                logger.warning(f"Failed to initialize traditional matcher: {e}. Falling back to basic fuzzy matching.")
-                self.use_advanced_matching = False
+        # if use_advanced_matching:
+        #     try:
+        #         self.traditional_matcher = TraditionalMatcher(cache_manager=cache_manager)
+        #         logger.info("✓ Advanced matching enabled (TF-IDF + Fuzzy - no external API)")
+        #     except Exception as e:
+        #         logger.warning(f"Failed to initialize traditional matcher: {e}. Falling back to basic fuzzy matching.")
+        logger.info("Using basic fuzzy matching (no advanced matching)")
     
     def create_matching_key(self, row):
         """Create composite matching key from tipo_serie, espesor, size with normalized tipo_serie."""
