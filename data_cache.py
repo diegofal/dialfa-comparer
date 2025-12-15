@@ -1,6 +1,6 @@
 """
 Data cache manager for storing and loading extracted data.
-Saves expensive operations (OCR, database queries, AI embeddings) to files.
+Saves expensive operations (OCR, database queries, TF-IDF vectors) to files.
 """
 import os
 import pandas as pd
@@ -33,10 +33,11 @@ class DataCache:
             'cintolo': self.cache_dir / 'cintolo_products.csv',
             'zaloze': self.cache_dir / 'zaloze_products.csv',
             'metadata': self.cache_dir / 'cache_metadata.csv',
-            'embeddings_dialfa': self.cache_dir / 'embeddings_dialfa.pkl',
-            'embeddings_citizen': self.cache_dir / 'embeddings_citizen.pkl',
-            'embeddings_cintolo': self.cache_dir / 'embeddings_cintolo.pkl',
-            'embeddings_zaloze': self.cache_dir / 'embeddings_zaloze.pkl'
+            # TF-IDF vector cache files
+            'tfidf_dialfa': self.cache_dir / 'tfidf_dialfa.pkl',
+            'tfidf_citizen': self.cache_dir / 'tfidf_citizen.pkl',
+            'tfidf_cintolo': self.cache_dir / 'tfidf_cintolo.pkl',
+            'tfidf_zaloze': self.cache_dir / 'tfidf_zaloze.pkl'
         }
         
         logger.info(f"Cache directory: {self.cache_dir.absolute()}")
@@ -109,9 +110,9 @@ class DataCache:
             try:
                 metadata_df = pd.read_csv(metadata_file)
             except:
-                metadata_df = pd.DataFrame()
+                metadata_df = pd.DataFrame(columns=['source', 'timestamp', 'record_count'])
         else:
-            metadata_df = pd.DataFrame()
+            metadata_df = pd.DataFrame(columns=['source', 'timestamp', 'record_count'])
         
         # Create new metadata record
         new_record = {
@@ -123,8 +124,9 @@ class DataCache:
         if extra_metadata:
             new_record.update(extra_metadata)
         
-        # Remove old entry for this source
-        metadata_df = metadata_df[metadata_df['source'] != source_name]
+        # Remove old entry for this source (only if column exists)
+        if 'source' in metadata_df.columns and not metadata_df.empty:
+            metadata_df = metadata_df[metadata_df['source'] != source_name]
         
         # Add new entry
         metadata_df = pd.concat([metadata_df, pd.DataFrame([new_record])], ignore_index=True)
@@ -161,36 +163,36 @@ class DataCache:
                     cache_file.unlink()
             logger.info("Cleared all cache files")
     
-    def save_embeddings(self, source_name, embeddings_array):
+    def save_tfidf(self, source_name, tfidf_array):
         """
-        Save embeddings array to cache (as pickle for numpy arrays).
+        Save TF-IDF vectors to cache (as pickle for numpy arrays).
         
         Args:
             source_name: Name of data source (dialfa, citizen, etc.)
-            embeddings_array: Numpy array of embeddings
+            tfidf_array: Numpy array of TF-IDF vectors
         """
-        cache_key = f'embeddings_{source_name}'
+        cache_key = f'tfidf_{source_name}'
         cache_file = self.files.get(cache_key)
         
         if not cache_file:
-            logger.warning(f"Unknown embeddings source: {source_name}")
+            logger.warning(f"Unknown TF-IDF source: {source_name}")
             return
         
         try:
             with open(cache_file, 'wb') as f:
-                pickle.dump(embeddings_array, f)
+                pickle.dump(tfidf_array, f)
             
-            logger.info(f"✓ Cached {len(embeddings_array)} embeddings to {cache_file.name}")
+            logger.info(f"✓ Cached TF-IDF vectors ({len(tfidf_array)} items) to {cache_file.name}")
             
             # Save metadata
-            self._update_metadata(cache_key, len(embeddings_array), {'type': 'embeddings'})
+            self._update_metadata(cache_key, len(tfidf_array), {'type': 'tfidf'})
             
         except Exception as e:
-            logger.error(f"Failed to cache embeddings for {source_name}: {e}")
+            logger.error(f"Failed to cache TF-IDF for {source_name}: {e}")
     
-    def load_embeddings(self, source_name):
+    def load_tfidf(self, source_name):
         """
-        Load embeddings array from cache.
+        Load TF-IDF vectors from cache.
         
         Args:
             source_name: Name of data source
@@ -198,7 +200,7 @@ class DataCache:
         Returns:
             Numpy array or None if not found
         """
-        cache_key = f'embeddings_{source_name}'
+        cache_key = f'tfidf_{source_name}'
         cache_file = self.files.get(cache_key)
         
         if not cache_file or not cache_file.exists():
@@ -206,18 +208,18 @@ class DataCache:
         
         try:
             with open(cache_file, 'rb') as f:
-                embeddings = pickle.load(f)
+                tfidf = pickle.load(f)
             
-            logger.info(f"✓ Loaded {len(embeddings)} embeddings from {cache_file.name}")
-            return embeddings
+            logger.info(f"✓ Loaded TF-IDF vectors ({len(tfidf)} items) from {cache_file.name}")
+            return tfidf
             
         except Exception as e:
-            logger.error(f"Failed to load embeddings for {source_name}: {e}")
+            logger.error(f"Failed to load TF-IDF for {source_name}: {e}")
             return None
     
-    def embeddings_exist(self, source_name):
-        """Check if embeddings cache exists for a data source."""
-        cache_key = f'embeddings_{source_name}'
+    def tfidf_exists(self, source_name):
+        """Check if TF-IDF cache exists for a data source."""
+        cache_key = f'tfidf_{source_name}'
         cache_file = self.files.get(cache_key)
         return cache_file and cache_file.exists()
     

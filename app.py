@@ -77,7 +77,7 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
                 cintolo_data=cached_matched_data['cintolo_data'],
                 zaloze_data=cached_matched_data['zaloze_data'],
                 velocity_data=velocity_data,
-                use_embeddings=False,  # Skip embedding initialization
+                use_advanced_matching=False,  # Skip advanced matching initialization
                 discount_percent=discount_percent,
                 nationalization_percent=nationalization_percent,
                 cintolo_discount=cintolo_discount,
@@ -219,8 +219,8 @@ def load_and_process_data(use_cache=True, discount_percent=30, nationalization_p
             cintolo_data=cintolo_data,
             zaloze_data=zaloze_data,
             velocity_data=velocity_data,
-            use_embeddings=True,  # Enable AI-powered matching
-            cache_manager=data_cache,  # Pass cache manager for embeddings
+            use_advanced_matching=False,  # Disabled: exact key matching finds all valid matches
+            cache_manager=data_cache,  # Pass cache manager for TF-IDF vectors
             discount_percent=discount_percent,
             nationalization_percent=nationalization_percent,
             cintolo_discount=cintolo_discount,

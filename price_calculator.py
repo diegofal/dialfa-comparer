@@ -1,12 +1,12 @@
 """
 Price calculator module for matching products and calculating margins.
-Implements matching algorithm using embeddings (AI-powered) and database fields.
+Implements matching algorithm using TF-IDF, fuzzy matching and database fields.
+No AI/external API dependencies - all processing is local.
 """
 import pandas as pd
 import logging
-from fuzzywuzzy import fuzz
-from embedding_matcher import EmbeddingMatcher
-import os
+from rapidfuzz import fuzz
+from traditional_matcher import TraditionalMatcher
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 
 class PriceCalculator:
     def __init__(self, db_articulos, dialfa_data, citizen_data, 
-                 cintolo_data=None, zaloze_data=None, velocity_data=None, use_embeddings=True, cache_manager=None,
-                 discount_percent=30, nationalization_percent=150, cintolo_discount=20, zaloze_discount=20):
+                 cintolo_data=None, zaloze_data=None, velocity_data=None, use_advanced_matching=True, cache_manager=None,
+                 discount_percent=30, nationalization_percent=150, cintolo_discount=20, zaloze_discount=20,
+                 use_embeddings=None):  # Legacy parameter, ignored
         """
         Initialize with data from all sources.
         
@@ -26,13 +27,17 @@ class PriceCalculator:
             cintolo_data: DataFrame with Cintolo competitor prices (optional)
             zaloze_data: DataFrame with Zaloze competitor prices (optional)
             velocity_data: DataFrame with inventory velocity metrics (optional)
-            use_embeddings: Use AI embeddings for matching (default: True)
-            cache_manager: DataCache instance for caching embeddings
+            use_advanced_matching: Use TF-IDF + Fuzzy matching for unmatched products (default: True)
+            cache_manager: DataCache instance for caching TF-IDF vectors
             discount_percent: Discount percentage to apply to ALL products (default: 30%)
             nationalization_percent: Percentage increase for FOB nationalization (default: 150%)
             cintolo_discount: Discount percentage for Cintolo prices (default: 20%)
             zaloze_discount: Discount percentage for Zaloze prices (default: 20%)
+            use_embeddings: DEPRECATED - kept for backwards compatibility, use use_advanced_matching instead
         """
+        # Handle legacy parameter
+        if use_embeddings is not None:
+            use_advanced_matching = use_embeddings
         self.db_articulos = db_articulos
         self.dialfa_data = dialfa_data
         self.citizen_data = citizen_data
@@ -48,21 +53,16 @@ class PriceCalculator:
         
         logger.info(f"Pricing config: Discount {discount_percent}% universal, Nationalization +{nationalization_percent}%, Cintolo discount {cintolo_discount}%, Zaloze discount {zaloze_discount}%")
         
-        # Initialize embedding matcher if enabled
-        self.use_embeddings = use_embeddings
-        self.embedding_matcher = None
-        if use_embeddings:
+        # Initialize traditional matcher (TF-IDF + Fuzzy - no API required)
+        self.use_advanced_matching = use_advanced_matching
+        self.traditional_matcher = None
+        if use_advanced_matching:
             try:
-                api_key = os.getenv('OPENAI_API_KEY')
-                if api_key:
-                    self.embedding_matcher = EmbeddingMatcher(api_key=api_key, cache_manager=cache_manager)
-                    logger.info("✓ AI-powered matching enabled (using embeddings)")
-                else:
-                    logger.warning("OPENAI_API_KEY not found. Falling back to fuzzy matching.")
-                    self.use_embeddings = False
+                self.traditional_matcher = TraditionalMatcher(cache_manager=cache_manager)
+                logger.info("✓ Advanced matching enabled (TF-IDF + Fuzzy - no external API)")
             except Exception as e:
-                logger.warning(f"Failed to initialize embedding matcher: {e}. Falling back to fuzzy matching.")
-                self.use_embeddings = False
+                logger.warning(f"Failed to initialize traditional matcher: {e}. Falling back to basic fuzzy matching.")
+                self.use_advanced_matching = False
     
     def create_matching_key(self, row):
         """Create composite matching key from tipo_serie, espesor, size with normalized tipo_serie."""
@@ -80,7 +80,7 @@ class PriceCalculator:
             if size == 'NAN':
                 size = ''
             
-            # Normalize tipo_serie FIRST using the same logic as embedding_matcher
+            # Normalize tipo_serie FIRST using the same logic as traditional_matcher
             # Map English to Spanish nomenclature and vice versa for matching
             # Remove extra spaces and standardize
             import re
@@ -88,7 +88,7 @@ class PriceCalculator:
             # Remove trailing .0 from series numbers (e.g., "2000.0" -> "2000")
             tipo_serie = re.sub(r'\.0+$', '', tipo_serie)
             
-            # Normalize common product types to a canonical form (same as embedding_matcher)
+            # Normalize common product types to a canonical form (same as traditional_matcher)
             # 90° Long Radius Elbows
             if any(x in tipo_serie for x in ['90D LR ELBOW', '90 LR ELBOW', 'CODO RADIO LARGO 90', 'CODOS 90° RADIO LARGO', 'CODO R.L. 90']):
                 tipo_serie = 'ELBOW_90_LR'
@@ -325,23 +325,22 @@ class PriceCalculator:
         
         logger.info(f"Matched {len(result)} products with exact key matching")
         
-        # Try AI-powered matching for unmatched items
-        if self.use_embeddings and self.embedding_matcher:
-            logger.info("🤖 Starting AI-powered matching with embeddings...")
-            result = self._embedding_match_citizen(result)
-            result = self._embedding_match_cintolo(result)
-            result = self._embedding_match_zaloze(result)
+        # Try advanced matching (TF-IDF + Fuzzy) for unmatched items
+        if self.use_advanced_matching and self.traditional_matcher:
+            logger.info("🔧 Starting advanced matching (TF-IDF + Fuzzy)...")
+            result = self._advanced_match_citizen(result)
+            result = self._advanced_match_cintolo(result)
+            result = self._advanced_match_zaloze(result)
         else:
-            # Fallback to fuzzy matching
-            logger.info("Using traditional fuzzy matching...")
-            result = self._fuzzy_match_unmatched(result)
+            # Only use exact key matching - no fuzzy matching to avoid bad matches
+            logger.info("Using exact key matching only (advanced matching disabled)")
         
         return result
     
-    def _embedding_match_citizen(self, df):
+    def _advanced_match_citizen(self, df):
         """
-        Apply AI-powered embedding matching for Citizen products that didn't match exactly.
-        Only processes unmatched products for cost efficiency.
+        Apply TF-IDF + Fuzzy matching for Citizen products that didn't match exactly.
+        Only processes unmatched products for efficiency.
         """
         unmatched_mask = df['precio_fob_ponderado'].isna()
         unmatched_count = unmatched_mask.sum()
@@ -350,23 +349,26 @@ class PriceCalculator:
             logger.info("✓ All Citizen products matched exactly with keys")
             return df
         
-        logger.info(f"🔍 AI matching {unmatched_count} unmatched products against {len(self.citizen_data)} Citizen products...")
+        logger.info(f"🔍 Advanced matching {unmatched_count} unmatched products against {len(self.citizen_data)} Citizen products...")
         
-        # Only process unmatched products (cost optimization)
+        # Only process unmatched products
         unmatched_df = df[unmatched_mask].copy()
         
         try:
-            # Use embedding matcher
-            matched_df, stats = self.embedding_matcher.match_products(
+            # Use traditional matcher (TF-IDF + Fuzzy) with STRICT business rules
+            # This finds matches where key components match but descriptions vary
+            matched_df, stats = self.traditional_matcher.match_products(
                 source_df=unmatched_df,
                 target_df=self.citizen_data,
                 source_name="Dialfa",
                 target_name="Citizen",
-                threshold=0.75  # Adjusted threshold based on testing
+                threshold=0.70,
+                enforce_business_rules=True,  # Strict: tipo_serie, size, espesor must match
+                partial_business_rules=False,
+                relaxed_matching=False
             )
             
             # Merge results back into main dataframe
-            # Use embedding results if available
             for idx in matched_df.index:
                 if pd.notna(matched_df.loc[idx, 'citizen_precio_usd_emb']):
                     # Get matched Citizen product
@@ -379,29 +381,28 @@ class PriceCalculator:
                     df.loc[idx, 'citizen_descripcion'] = citizen_desc
                     df.loc[idx, 'citizen_size'] = citizen_size
                     df.loc[idx, 'citizen_espesor'] = citizen_espesor
-                    # For embeddings match, set all prices to the same value (no min/max available)
+                    # For advanced match, set all prices to the same value (no min/max available)
                     df.loc[idx, 'precio_fob_min'] = precio_usd
                     df.loc[idx, 'precio_fob_max'] = precio_usd
                     df.loc[idx, 'precio_fob_ponderado'] = precio_usd
                     score = matched_df.loc[idx, 'citizen_match_score']
-                    df.loc[idx, 'match_type'] = f'AI Embedding ({score}%)'
+                    df.loc[idx, 'match_type'] = f'TF-IDF+Fuzzy ({score}%)'
             
-            logger.info(f"✓ AI matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
+            logger.info(f"✓ Advanced matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
             
         except Exception as e:
-            logger.error(f"❌ Embedding matching failed: {e}")
-            logger.info("Falling back to fuzzy matching...")
-            return self._fuzzy_match_unmatched(df)
+            logger.error(f"❌ Advanced matching failed: {e}")
+            # Don't fall back to basic fuzzy matching - it creates bad matches
         
         return df
     
-    def _embedding_match_cintolo(self, df):
+    def _advanced_match_cintolo(self, df):
         """
-        Apply AI-powered embedding matching for Cintolo competitor products that didn't match exactly.
-        Only processes unmatched products for cost efficiency.
+        Apply TF-IDF + Fuzzy matching for Cintolo competitor products that didn't match exactly.
+        Only processes unmatched products for efficiency.
         """
         if self.cintolo_data.empty:
-            logger.info("No Cintolo data available for embedding matching")
+            logger.info("No Cintolo data available for advanced matching")
             return df
         
         unmatched_mask = df['cintolo_precio'].isna()
@@ -411,26 +412,25 @@ class PriceCalculator:
             logger.info("✓ All Cintolo products matched exactly with keys")
             return df
         
-        logger.info(f"🔍 AI matching {unmatched_count} unmatched products against {len(self.cintolo_data)} Cintolo products...")
+        logger.info(f"🔍 Advanced matching {unmatched_count} unmatched products against {len(self.cintolo_data)} Cintolo products...")
         
-        # Only process unmatched products (cost optimization)
+        # Only process unmatched products
         unmatched_df = df[unmatched_mask].copy()
         
         try:
-            # Use embedding matcher WITH full business rules for Cintolo
-            # Now with improved tipo_serie normalization that maps English<->Spanish nomenclature
-            matched_df, stats = self.embedding_matcher.match_products(
+            # Use traditional matcher with STRICT business rules for Cintolo
+            matched_df, stats = self.traditional_matcher.match_products(
                 source_df=unmatched_df,
                 target_df=self.cintolo_data,
                 source_name="Dialfa",
                 target_name="Cintolo",
-                threshold=0.75,  # Threshold for semantic matching
-                enforce_business_rules=True,  # Enforce ALL rules (tipo_serie, size, espesor)
-                partial_business_rules=False
+                threshold=0.70,
+                enforce_business_rules=True,  # Strict: tipo_serie, size, espesor must match
+                partial_business_rules=False,
+                relaxed_matching=False
             )
             
             # Merge results back into main dataframe
-            # Use embedding results if available
             for idx in matched_df.index:
                 if pd.notna(matched_df.loc[idx, 'cintolo_precio_emb']):
                     # Get matched Cintolo product
@@ -442,7 +442,6 @@ class PriceCalculator:
                     cintolo_row = self.cintolo_data[self.cintolo_data['codigo'] == cintolo_codigo]
                     if not cintolo_row.empty:
                         espesor = cintolo_row.iloc[0].get('espesor', '')
-                        # Concatenate description with espesor for complete info
                         if pd.notna(espesor) and str(espesor).strip():
                             cintolo_desc_full = f"{cintolo_desc} {espesor}"
                         else:
@@ -454,27 +453,24 @@ class PriceCalculator:
                     df.loc[idx, 'cintolo_descripcion'] = cintolo_desc_full
                     df.loc[idx, 'cintolo_precio'] = cintolo_precio
                     score = matched_df.loc[idx, 'cintolo_match_score']
-                    
-                    # Update match type with Cintolo info
-                    current_match = df.loc[idx, 'match_status'] if 'match_status' in df.columns else ''
-                    df.loc[idx, 'cintolo_match_type'] = f'AI Embedding ({score}%)'
+                    df.loc[idx, 'cintolo_match_type'] = f'TF-IDF+Fuzzy ({score}%)'
             
-            logger.info(f"✓ Cintolo AI matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
+            logger.info(f"✓ Cintolo advanced matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
             
         except Exception as e:
-            logger.error(f"❌ Cintolo embedding matching failed: {e}")
+            logger.error(f"❌ Cintolo advanced matching failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
         
         return df
     
-    def _embedding_match_zaloze(self, df):
+    def _advanced_match_zaloze(self, df):
         """
-        Apply AI-powered embedding matching for Zaloze competitor products that didn't match exactly.
-        Only processes unmatched products for cost efficiency.
+        Apply TF-IDF + Fuzzy matching for Zaloze competitor products that didn't match exactly.
+        Only processes unmatched products for efficiency.
         """
         if self.zaloze_data.empty:
-            logger.info("No Zaloze data available for embedding matching")
+            logger.info("No Zaloze data available for advanced matching")
             return df
         
         unmatched_mask = df['zaloze_precio'].isna()
@@ -484,26 +480,25 @@ class PriceCalculator:
             logger.info("✓ All Zaloze products matched exactly with keys")
             return df
         
-        logger.info(f"🔍 AI matching {unmatched_count} unmatched products against {len(self.zaloze_data)} Zaloze products...")
+        logger.info(f"🔍 Advanced matching {unmatched_count} unmatched products against {len(self.zaloze_data)} Zaloze products...")
         
-        # Only process unmatched products (cost optimization)
+        # Only process unmatched products
         unmatched_df = df[unmatched_mask].copy()
         
         try:
-            # Use embedding matcher WITH full business rules for Zaloze
-            # Now with improved tipo_serie normalization that maps English<->Spanish nomenclature
-            matched_df, stats = self.embedding_matcher.match_products(
+            # Use traditional matcher with STRICT business rules for Zaloze
+            matched_df, stats = self.traditional_matcher.match_products(
                 source_df=unmatched_df,
                 target_df=self.zaloze_data,
                 source_name="Dialfa",
                 target_name="Zaloze",
-                threshold=0.75,  # Threshold for semantic matching
-                enforce_business_rules=True,  # Enforce ALL rules (tipo_serie, size, espesor)
-                partial_business_rules=False
+                threshold=0.70,
+                enforce_business_rules=True,  # Strict: tipo_serie, size, espesor must match
+                partial_business_rules=False,
+                relaxed_matching=False
             )
             
             # Merge results back into main dataframe
-            # Use embedding results if available
             for idx in matched_df.index:
                 if pd.notna(matched_df.loc[idx, 'zaloze_precio_emb']):
                     # Get matched Zaloze product
@@ -515,7 +510,6 @@ class PriceCalculator:
                     zaloze_row = self.zaloze_data[self.zaloze_data['codigo'] == zaloze_codigo]
                     if not zaloze_row.empty:
                         espesor = zaloze_row.iloc[0].get('espesor', '')
-                        # Concatenate description with espesor for complete info
                         if pd.notna(espesor) and str(espesor).strip():
                             zaloze_desc_full = f"{zaloze_desc} {espesor}"
                         else:
@@ -527,22 +521,19 @@ class PriceCalculator:
                     df.loc[idx, 'zaloze_descripcion'] = zaloze_desc_full
                     df.loc[idx, 'zaloze_precio'] = zaloze_precio
                     score = matched_df.loc[idx, 'zaloze_match_score']
-                    
-                    # Update match type with Zaloze info
-                    current_match = df.loc[idx, 'match_status'] if 'match_status' in df.columns else ''
-                    df.loc[idx, 'zaloze_match_type'] = f'AI Embedding ({score}%)'
+                    df.loc[idx, 'zaloze_match_type'] = f'TF-IDF+Fuzzy ({score}%)'
             
-            logger.info(f"✓ Zaloze AI matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
+            logger.info(f"✓ Zaloze advanced matching: {stats['matched']} new matches found ({stats['match_rate']}% match rate)")
             
         except Exception as e:
-            logger.error(f"❌ Zaloze embedding matching failed: {e}")
+            logger.error(f"❌ Zaloze advanced matching failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
         
         return df
     
     def _fuzzy_match_unmatched(self, df):
-        """Apply fuzzy matching for products that didn't match exactly (fallback method)."""
+        """Apply basic fuzzy matching for products that didn't match exactly (fallback method)."""
         unmatched_mask = df['precio_fob_ponderado'].isna()
         unmatched_count = unmatched_mask.sum()
         
@@ -550,7 +541,7 @@ class PriceCalculator:
             logger.info("All products matched exactly")
             return df
         
-        logger.info(f"Attempting fuzzy matching for {unmatched_count} unmatched products")
+        logger.info(f"Attempting basic fuzzy matching for {unmatched_count} unmatched products")
         
         for idx in df[unmatched_mask].index:
             # Use descripcion from database
@@ -563,6 +554,7 @@ class PriceCalculator:
                 
                 for _, citizen_row in self.citizen_data.iterrows():
                     citizen_desc = str(citizen_row['descripcion']).lower()
+                    # Using rapidfuzz instead of fuzzywuzzy (10x faster)
                     score = fuzz.token_set_ratio(dialfa_desc, citizen_desc)
                     
                     if score > best_score and score > 70:  # Threshold for fuzzy match
@@ -582,7 +574,7 @@ class PriceCalculator:
                     df.loc[idx, 'match_type'] = f'Fuzzy ({best_score}%)'
         
         newly_matched = df[unmatched_mask]['precio_fob_ponderado'].notna().sum()
-        logger.info(f"Fuzzy matching found {newly_matched} additional matches")
+        logger.info(f"Basic fuzzy matching found {newly_matched} additional matches")
         
         return df
     
